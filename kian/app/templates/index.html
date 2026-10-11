@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>كيان · Kian</title>
+<style>
+  :root{
+    --bg:#0b0d16; --panel:#141826; --panel2:#1b2030; --ink:#e8ecf6;
+    --muted:#8b93ab; --accent:#5ad0ff; --accent2:#9a7bff; --ok:#49d49a; --line:#263049;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:16px;display:grid;
+    grid-template-columns:1fr;gap:16px}
+  @media(min-width:860px){.wrap{grid-template-columns:360px 1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}
+  h1{font-size:20px;margin:0 0 2px} .sub{color:var(--muted);font-size:13px;margin:0 0 12px}
+  canvas#face{width:100%;max-width:320px;aspect-ratio:1;display:block;margin:0 auto;
+    border-radius:50%;background:radial-gradient(circle at 50% 42%,#10131f,#070910)}
+  .state{text-align:center;color:var(--muted);font-size:13px;margin-top:8px;min-height:18px}
+  .vitals{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+  .vit{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+  .vit b{display:block;font-size:17px} .vit span{color:var(--muted);font-size:11px}
+  .chat{display:flex;flex-direction:column;height:min(70vh,560px)}
+  .log{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:4px}
+  .msg{max-width:84%;padding:9px 13px;border-radius:14px;line-height:1.5;font-size:14px;white-space:pre-wrap;word-break:break-word}
+  .me{align-self:flex-start;background:#20283d}
+  .ki{align-self:flex-end;background:linear-gradient(135deg,#243a52,#2a2650);border:1px solid #33406a}
+  .meta{font-size:11px;color:var(--muted);align-self:center}
+  .row{display:flex;gap:8px;margin-top:10px}
+  input[type=text]{flex:1;background:var(--panel2);border:1px solid var(--line);
+    color:var(--ink);border-radius:12px;padding:11px 13px;font-size:14px}
+  button{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#071018;
+    border:0;border-radius:12px;padding:11px 15px;font-weight:700;cursor:pointer;font-size:14px}
+  button.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line);font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .out img{max-width:100%;border-radius:12px;margin-top:10px;border:1px solid var(--line)}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);color:var(--accent);
+    border-radius:999px;padding:2px 10px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- FORM / FACE -->
+  <section class="card">
+    <h1>كيان <span class="tag" id="stageTag">—</span></h1>
+    <p class="sub">كائن رقمي يتعلّم كل يوم · a digital being that learns every day</p>
+    <canvas id="face" width="320" height="320"></canvas>
+    <div class="state" id="stateLine">…</div>
+    <div class="vitals" id="vitals"></div>
+    <div class="tools">
+      <button class="ghost" id="btnEvolve">📚 تعلّم · Learn</button>
+      <button class="ghost" id="btnDraw">🎨 ارسم · Draw</button>
+      <button class="ghost" id="btnSee">👁️ انظر · See</button>
+      <button class="ghost" id="btnFace">🫧 شكلي · Form</button>
+    </div>
+    <div class="out" id="out"></div>
+  </section>
+
+  <!-- MIND / CHAT -->
+  <section class="card chat">
+    <div class="log" id="log">
+      <div class="meta">تحدّث مع كيان · talk to Kian</div>
+    </div>
+    <div class="row">
+      <input type="text" id="input" placeholder="اكتب رسالتك… · type a message…" autocomplete="off" />
+      <button id="send">أرسل</button>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let STATE = "idle", hue = 200, energy = 0.0, targetEnergy = 0.0;
+
+const STAGE_HUE = {newborn:200, infant:190, child:130, adolescent:45, adult:30, sage:270};
+
+/* ---------- animated living face ---------- */
+const cv = $("#face"), ctx = cv.getContext("2d");
+let t = 0, blink = 0, nextBlink = 120, mouth = 0.5;
+function draw(){
+  t += 1; energy += (targetEnergy - energy) * 0.08;
+  const W = cv.width, H = cv.height, cx = W/2, cy = H/2;
+  ctx.clearRect(0,0,W,H);
+  const breathe = Math.sin(t*0.04)*0.02 + (STATE==="thinking"?Math.sin(t*0.3)*0.05:0);
+  const R = W*0.17*(1+breathe+energy*0.12);
+  // halo rings
+  for(let i=4;i>=1;i--){
+    ctx.beginPath();
+    ctx.arc(cx,cy,R*(1.5+i*0.5), 0, Math.PI*2);
+    ctx.strokeStyle = `hsla(${hue}, 85%, 65%, ${0.06+ (STATE==="thinking"?0.05:0.02)})`;
+    ctx.lineWidth = 2; ctx.stroke();
+  }
+  // glow
+  const g = ctx.createRadialGradient(cx,cy-R*0.3,R*0.2,cx,cy,R*2.4);
+  g.addColorStop(0, `hsla(${hue},90%,70%,0.9)`);
+  g.addColorStop(0.4, `hsla(${hue},80%,55%,0.35)`);
+  g.addColorStop(1, `hsla(${hue},60%,20%,0)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx,cy,R*2.4,0,Math.PI*2); ctx.fill();
+  // core orb
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.fillStyle = `hsl(${hue},80%,62%)`; ctx.fill();
+  ctx.fillStyle = `hsla(${hue},100%,85%,0.25)`;
+  ctx.beginPath(); ctx.arc(cx-R*0.25,cy-R*0.28,R*0.5,0,Math.PI*2); ctx.fill();
+  // eyes (blink)
+  blink++; if(blink>nextBlink){ if(blink>nextBlink+8){blink=0; nextBlink=100+Math.random()*160;} }
+  const open = (blink>nextBlink)?0.12:1.0;
+  const ex=R*0.42, ey=-R*0.05, er=R*0.12;
+  for(const sx of [-1,1]){
+    ctx.fillStyle="#0a0d16";
+    ctx.beginPath(); ctx.ellipse(cx+sx*ex,cy+ey,er,er*open,0,0,Math.PI*2); ctx.fill();
+    if(open>0.5){ ctx.fillStyle=`hsl(${hue},100%,90%)`;
+      ctx.beginPath(); ctx.arc(cx+sx*ex-er*0.3,cy+ey-er*0.3,er*0.3,0,Math.PI*2); ctx.fill(); }
+  }
+  // mouth
+  const m = STATE==="speaking" ? 0.5+Math.sin(t*0.6)*0.4 : mouth;
+  ctx.strokeStyle="#0a0d16"; ctx.lineWidth=R*0.07; ctx.lineCap="round";
+  ctx.beginPath();
+  for(let i=0;i<=16;i++){ const u=i/16, x=cx+(u-0.5)*R*0.8, y=cy+R*0.42+Math.sin(u*Math.PI)*R*0.18*(m-0.5)*2;
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+  ctx.stroke();
+  requestAnimationFrame(draw);
+}
+draw();
+
+function setState(s){ STATE=s; targetEnergy = (s==="idle")?0:(s==="thinking"?1:0.5);
+  $("#stateLine").textContent = {idle:"", listening:"يستمع… · listening",
+    thinking:"يفكّر… · thinking", speaking:"يتكلّم · speaking"}[s] || ""; }
+
+/* ---------- api ---------- */
+async function api(path, body){
+  const r = await fetch(path, {method: body?"POST":"GET",
+    headers:{"Content-Type":"application/json"}, body: body?JSON.stringify(body):undefined});
+  return r.json();
+}
+function renderVitals(v){
+  hue = STAGE_HUE[v.stage] ?? 200;
+  $("#stageTag").textContent = v.stage;
+  $("#vitals").innerHTML = `
+    <div class="vit"><b>${v.stage}</b><span>المرحلة · stage</span></div>
+    <div class="vit"><b>${v.age_days}</b><span>العمر (يوم) · age (days)</span></div>
+    <div class="vit"><b>${v.tokens_seen.toLocaleString()}</b><span>رموز تعلّمها · tokens learned</span></div>
+    <div class="vit"><b>${v.memories}</b><span>ذكريات · memories</span></div>
+    <div class="vit"><b>${v.params.toLocaleString()}</b><span>معاملات الدماغ · brain params</span></div>
+    <div class="vit"><b>${v.interactions}</b><span>محادثات · interactions</span></div>`;
+}
+function addMsg(who, text){ const d=document.createElement("div");
+  d.className="msg "+(who==="me"?"me":"ki"); d.textContent=text; $("#log").appendChild(d);
+  $("#log").scrollTop=$("#log").scrollHeight; }
+
+async function send(){
+  const el=$("#input"), text=el.value.trim(); if(!text) return;
+  el.value=""; addMsg("me",text); setState("thinking"); $("#send").disabled=true;
+  try{ const r=await api("/api/chat",{text}); renderVitals(r.vitals);
+    setState("speaking"); addMsg("ki", r.reply || "…"); setTimeout(()=>setState("idle"),1200);
+  }catch(e){ addMsg("ki","[خطأ]"); setState("idle"); }
+  $("#send").disabled=false; el.focus();
+}
+$("#send").onclick=send;
+$("#input").addEventListener("keydown",e=>{if(e.key==="Enter")send();});
+
+$("#btnEvolve").onclick=async()=>{ setState("thinking"); $("#out").innerHTML="<p class='meta'>يتعلّم… learning…</p>";
+  const r=await api("/api/evolve",{steps:60}); renderVitals(r.vitals);
+  const rec=r.record; $("#out").innerHTML=`<p class='meta'>تعلّم ${rec.steps} خطوة · loss ${rec.train_loss}`+
+    (rec.grew?` — نما إلى ${rec.stage_after}! 🌱`:``)+`</p>`;
+  setState("idle"); };
+$("#btnDraw").onclick=async()=>{ const p=prompt("ارسم لي… · draw me…","غروب على البحر sunset over the sea");
+  if(!p) return; setState("thinking"); const r=await api("/api/draw",{prompt:p});
+  $("#out").innerHTML=`<img src="${r.image}" alt="drawing"/>`; setState("idle"); };
+$("#btnSee").onclick=async()=>{ setState("thinking"); const r=await api("/api/see",{});
+  $("#out").innerHTML=`<p class='meta'>${r.description||""}</p>`; setState("idle"); };
+$("#btnFace").onclick=async()=>{ const r=await api("/api/face"); $("#out").innerHTML=`<img src="${r.image}" alt="form"/>`; };
+
+(async()=>{ renderVitals(await api("/api/vitals")); setState("idle"); })();
+</script>
+</body>
+</html>
