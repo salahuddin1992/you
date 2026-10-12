@@ -75,6 +75,19 @@ def _unbroadcast(grad: np.ndarray, shape: Shape) -> np.ndarray:
     return grad.reshape(shape)
 
 
+def _is_basic_index(idx) -> bool:
+    """True when ``idx`` uses only ints/slices/Ellipsis/None (no fancy arrays).
+
+    Basic indexing selects each element at most once, so its gradient can be
+    written with a plain assignment instead of the much slower ``np.add.at``
+    (which must tolerate repeated indices). Fancy indexing — used by
+    ``Embedding`` lookups, where ids repeat — still takes the accumulate path.
+    """
+    parts = idx if isinstance(idx, tuple) else (idx,)
+    return all(p is None or p is Ellipsis or isinstance(p, (int, slice, np.integer))
+               for p in parts)
+
+
 class Tensor:
     """A node in the automatic-differentiation graph."""
 
@@ -130,8 +143,14 @@ class Tensor:
     def _accumulate(self, g: np.ndarray) -> None:
         if not self.requires_grad:
             return
-        g = _unbroadcast(g, self.shape).astype(self.data.dtype)
-        self.grad = g if self.grad is None else self.grad + g
+        g = _unbroadcast(g, self.shape)
+        if g.dtype != self.data.dtype:
+            g = g.astype(self.data.dtype)   # copy only when a cast is needed
+        if self.grad is None:
+            # Own the buffer: ``g`` may alias an upstream grad array.
+            self.grad = g.copy()
+        else:
+            self.grad += g                  # in-place accumulate, no new array
 
     def zero_grad(self) -> None:
         self.grad = None
@@ -208,7 +227,15 @@ class Tensor:
         def _backward() -> None:
             if out.grad is None:
                 return
-            self._accumulate(out.grad * (p * self.data ** (p - 1)))
+            if p == 2:
+                d = 2.0 * self.data
+            elif p == -1:
+                d = -1.0 / (self.data * self.data)
+            elif p == 0.5:
+                d = 0.5 / out.data            # out.data == sqrt(x)
+            else:
+                d = p * self.data ** (p - 1)
+            self._accumulate(out.grad * d)
 
         out._backward = _backward
         return out
@@ -308,7 +335,10 @@ class Tensor:
             if out.grad is None:
                 return
             g = np.zeros_like(self.data)
-            np.add.at(g, idx, out.grad)
+            if _is_basic_index(idx):
+                g[idx] = out.grad             # each element selected once
+            else:
+                np.add.at(g, idx, out.grad)   # repeated ids must accumulate
             self._accumulate(g)
 
         out._backward = _backward
@@ -431,20 +461,29 @@ class Tensor:
         return out
 
     def gelu(self) -> "Tensor":
-        """Gaussian Error Linear Unit (tanh approximation, as used by GPT-2)."""
+        """Gaussian Error Linear Unit (tanh approximation, as used by GPT-2).
+
+        Powers are written as explicit products (``x*x*x`` rather than
+        ``x**3``): NumPy's generic ``power`` is several times slower than
+        multiplication on large float arrays, and GELU runs on the widest
+        activation in the network, so this alone is a large share of a step.
+        """
         x = self.data
-        c = np.sqrt(2.0 / np.pi).astype(np.float32)
-        inner = c * (x + 0.044715 * x ** 3)
+        c = x.dtype.type(np.sqrt(2.0 / np.pi))
+        k = x.dtype.type(0.044715)
+        x2 = x * x
+        inner = c * (x + k * x2 * x)
         t = np.tanh(inner)
-        val = 0.5 * x * (1.0 + t)
+        half_1pt = 0.5 * (1.0 + t)
+        val = x * half_1pt
         out = Tensor(val, self.requires_grad, (self,), "gelu")
 
         def _backward() -> None:
             if out.grad is None:
                 return
             sech2 = 1.0 - t * t
-            dinner = c * (1.0 + 3 * 0.044715 * x ** 2)
-            dx = 0.5 * (1.0 + t) + 0.5 * x * sech2 * dinner
+            dinner = c * (1.0 + 3.0 * k * x2)
+            dx = half_1pt + 0.5 * x * sech2 * dinner
             self._accumulate(out.grad * dx)
 
         out._backward = _backward
@@ -540,3 +579,37 @@ def cat(tensors: list["Tensor"], axis: int = -1) -> "Tensor":
 def stack(tensors: list["Tensor"], axis: int = 0) -> "Tensor":
     expanded = [t.reshape(*t.shape[:axis], 1, *t.shape[axis:]) for t in tensors]
     return cat(expanded, axis=axis)
+
+
+def layer_norm(x: "Tensor", gamma: "Tensor", beta: "Tensor", eps: float = 1e-5) -> "Tensor":
+    """Fused LayerNorm over the last axis with an analytic backward pass.
+
+    Composing LayerNorm from ``mean/var/sqrt/div/mul/add`` builds ~8 graph nodes
+    and as many intermediate arrays per call; the Transformer calls it many
+    times per step. This single op computes the same value and the exact
+    gradient (the standard LayerNorm backward) with a fraction of the overhead.
+    """
+    xd = x.data
+    mu = xd.mean(axis=-1, keepdims=True)
+    xc = xd - mu
+    var = (xc * xc).mean(axis=-1, keepdims=True)
+    rstd = 1.0 / np.sqrt(var + eps)
+    xhat = xc * rstd
+    out_data = xhat * gamma.data + beta.data
+    req = x.requires_grad or gamma.requires_grad or beta.requires_grad
+    out = Tensor(out_data, req, (x, gamma, beta), "layernorm")
+
+    def _backward() -> None:
+        if out.grad is None:
+            return
+        g = out.grad
+        axes = tuple(range(g.ndim - 1))
+        gamma._accumulate((g * xhat).sum(axis=axes))
+        beta._accumulate(g.sum(axis=axes))
+        gxhat = g * gamma.data
+        m1 = gxhat.mean(axis=-1, keepdims=True)
+        m2 = (gxhat * xhat).mean(axis=-1, keepdims=True)
+        x._accumulate(rstd * (gxhat - m1 - xhat * m2))
+
+    out._backward = _backward
+    return out

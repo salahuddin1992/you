@@ -155,10 +155,8 @@ class LayerNorm(Module):
         self.beta = Parameter(np.zeros(dim, dtype=np.float32))
 
     def forward(self, x: Tensor) -> Tensor:
-        mu = x.mean(axis=-1, keepdims=True)
-        var = x.var(axis=-1, keepdims=True)
-        normed = (x - mu) / (var + self.eps).sqrt()
-        return normed * self.gamma + self.beta
+        from .tensor import layer_norm
+        return layer_norm(x, self.gamma, self.beta, self.eps)
 
 
 class Dropout(Module):
