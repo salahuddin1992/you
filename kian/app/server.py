@@ -76,6 +76,10 @@ class KianApp:
         with self.lock:
             return {"description": self.being.see_screen()}
 
+    def growth(self) -> dict:
+        with self.lock:
+            return {"description": self.being.growth()}
+
 
 def _data_url(png_path: str) -> str:
     data = Path(png_path).read_bytes()
@@ -115,6 +119,8 @@ def _make_handler(app: KianApp):
                 self._json(app.vitals())
             elif self.path == "/api/face":
                 self._json(app.face())
+            elif self.path == "/api/growth":
+                self._json(app.growth())
             else:
                 self._json({"error": "not found"}, 404)
 

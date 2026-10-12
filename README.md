@@ -72,6 +72,9 @@ python -m kian --home kian_home evolve --daemon --interval 24          # foregro
 | `face` | ارسم شكله · render the being's form |
 | `see [--image p]` | يصف الشاشة أو صورة · describe the screen or an image |
 | `browse URL` | يقرأ صفحة ويب · read a web page |
+| `say "..."` | ينطق بصوت (يحتاج محرّك نطق) · speak aloud (needs a TTS backend) |
+| `feed <path\|URL>` | يبتلع ملفًا أو صفحة ليتعلّمها ليلًا · feed a file/URL to learn |
+| `metrics` | تقرير نموّه (الحيرة، المراحل) · growth report (perplexity, stages) |
 | `live` | الواجهة الحية · the web face |
 
 ---

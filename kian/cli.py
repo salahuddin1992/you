@@ -141,6 +141,28 @@ def cmd_browse(args) -> None:
     print(read_page(args.url, max_chars=args.chars))
 
 
+def cmd_say(args) -> None:
+    being = _load_or_birth(args.home)
+    res = being.say(args.text)
+    being.save()
+    if res.get("spoken"):
+        print(f"🔊 ({res['backend']}) {res['text']}")
+    else:
+        print(f"🔇 {res['text']}\n   {res.get('note', '')}")
+
+
+def cmd_feed(args) -> None:
+    from .evolve.feed import feed
+    path = feed(args.target, inbox=args.inbox)
+    print(f"🍃 fed into inbox -> {path}")
+    print("   Kian will learn it on the next `evolve` cycle.")
+
+
+def cmd_metrics(args) -> None:
+    from .evolve.metrics import summary_text
+    print(summary_text(args.home))
+
+
 def cmd_live(args) -> None:
     from .app.server import run_server
     run_server(home=args.home, host=args.host, port=args.port, open_browser=not args.no_browser)
@@ -200,6 +222,16 @@ def build_parser() -> argparse.ArgumentParser:
     w = sub.add_parser("browse", help="read a web page")
     w.add_argument("url"); w.add_argument("--chars", type=int, default=4000)
     w.set_defaults(func=cmd_browse)
+
+    sy = sub.add_parser("say", help="speak text aloud (needs a TTS backend)")
+    sy.add_argument("text"); sy.set_defaults(func=cmd_say)
+
+    fd = sub.add_parser("feed", help="feed a file or URL into the inbox to learn")
+    fd.add_argument("target"); fd.add_argument("--inbox", default="data/inbox")
+    fd.set_defaults(func=cmd_feed)
+
+    mt = sub.add_parser("metrics", help="report the being's growth")
+    mt.set_defaults(func=cmd_metrics)
 
     l = sub.add_parser("live", help="launch the web UI (the face)")
     l.add_argument("--host", default="127.0.0.1"); l.add_argument("--port", type=int, default=7860)

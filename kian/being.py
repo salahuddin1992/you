@@ -256,6 +256,17 @@ class Being:
         self.perceive(f"[read web {url}] {text[:400]}", kind="perception")
         return text
 
+    def say(self, text: str) -> dict:
+        """Speak text aloud (if a TTS backend is available) and feel it."""
+        from .senses.voice import speak
+        self.mood.event("positive")
+        return speak(text)
+
+    def growth(self) -> str:
+        """A one-line self-report of how much the being has grown."""
+        from .evolve.metrics import summary_text
+        return summary_text(self.home)
+
     def __repr__(self) -> str:
         v = self.vitals()
         return (f"Being({v['name']}/{v['name_ar']}, stage={v['stage']}, "
