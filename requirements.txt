@@ -1,0 +1,14 @@
+# Kian core — the from-scratch brain needs ONLY NumPy.
+numpy>=1.23
+
+# ---- Optional capabilities (install to unlock; core runs without them) ----
+# Wider image format reading (JPEG, etc.). PNG works without it.
+# pillow>=9.0
+# Screen capture, so Kian can "see" the screen:
+# mss>=7.0
+# GUI automation, so Kian can type/click (bounded by the safety policy):
+# pyautogui>=0.9.54
+# Faster web fetching for browsing (urllib fallback works without it):
+# requests>=2.28
+# YAML config (a JSON fallback is used if absent):
+# pyyaml>=6.0

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Kian runtime state (the being's living data — not source)
+kian_home/
+*/kian_home/
+checkpoints/
+memory/
+data/inbox/*
+!data/inbox/.gitkeep
+data/corpus/learned/
+*.png
+!docs/*.png
+*.npz
+*.log

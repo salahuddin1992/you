@@ -1,0 +1,29 @@
+# Kian default configuration. Copy and edit; the CLI flags override these.
+being:
+  home: kian_home          # where Kian lives (brain + memory)
+  name: Kian
+brain:                      # created at birth
+  vocab_size: 1024
+  n_layer: 4
+  n_head: 4
+  n_embd: 128
+  block_size: 128
+evolve:
+  corpus_glob: "data/corpus/*.txt"
+  inbox_dir: "data/inbox"  # drop .txt lessons here; Kian learns them nightly
+  interval_hours: 24
+  max_seconds: 900
+ui:
+  host: 127.0.0.1
+  port: 7860
+# Computer-control safety policy (see kian/senses/policy.py).
+# Kian NEVER disables antivirus/firewall, deletes data en masse, or tampers
+# with the OS — those are refused categorically regardless of this config.
+safety:
+  allow_typing: true
+  allow_mouse: true
+  allow_open_url: true
+  allow_commands: false    # keep false unless you really need it
+  allowed_commands: []     # e.g. ["notepad", "calc"] — basenames only
+  require_confirmation: true
+  max_actions_per_minute: 30
