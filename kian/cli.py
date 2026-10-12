@@ -70,10 +70,20 @@ def cmd_chat(args) -> None:
             break
         if text == "save":
             being.save(); print("   (saved)"); continue
-        reply = being.respond(text, max_new_tokens=args.tokens, temperature=args.temp)
-        print(f"{being.identity.name} » {reply}\n")
+        out = being.act(text, max_new_tokens=args.tokens)
+        tag = "" if out["action"] == "talk" else f"  \033[2m[{out['action']}: {out['thought']}]\033[0m"
+        print(f"{being.identity.name} » {out['answer']}{tag}\n")
     being.save()
     print("   (saved. goodbye)")
+
+
+def cmd_ask(args) -> None:
+    being = _load_or_birth(args.home)
+    out = being.act(args.text, max_new_tokens=args.tokens)
+    print(f"[{out['action']}] {out['answer']}")
+    if out["action"] != "talk":
+        print(f"  ↳ {out['thought']}")
+    being.save()
 
 
 def cmd_train(args) -> None:
@@ -155,6 +165,10 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("chat", help="interactive conversation")
     c.add_argument("--tokens", type=int, default=120); c.add_argument("--temp", type=float, default=0.8)
     c.set_defaults(func=cmd_chat)
+
+    a = sub.add_parser("ask", help="one-shot: think and act on a request")
+    a.add_argument("text"); a.add_argument("--tokens", type=int, default=100)
+    a.set_defaults(func=cmd_ask)
 
     t = sub.add_parser("train", help="one training pass over the corpus")
     t.add_argument("--corpus", default="data/corpus/*.txt")

@@ -47,8 +47,9 @@ class KianApp:
 
     def chat(self, text: str) -> dict:
         with self.lock:
-            reply = self.being.respond(text, max_new_tokens=100, temperature=0.85)
-            return {"reply": reply, "vitals": self.being.vitals()}
+            out = self.being.act(text, max_new_tokens=100)
+            return {"reply": out["answer"], "action": out["action"],
+                    "thought": out["thought"], "vitals": self.being.vitals()}
 
     def evolve(self, steps: int = 60) -> dict:
         from ..evolve.daily_loop import Evolver

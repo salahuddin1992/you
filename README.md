@@ -65,6 +65,7 @@ python -m kian --home kian_home evolve --daemon --interval 24          # foregro
 | `birth` | وِلادة كائن جديد · create a new being |
 | `status` | العلامات الحيوية · vital signs (stage, age, tokens, memories) |
 | `chat` | محادثة تفاعلية · interactive conversation |
+| `ask "..."` | فكّر ونفّذ: يوجّه الطلب للمهارة المناسبة · think & act (routes to a skill) |
 | `train --steps N` | جلسة تدريب على النصوص · one training pass over the corpus |
 | `evolve [--daemon]` | دورة تطوّر ذاتي · a self-development cycle |
 | `draw "..."` | رسم من وصف نصّي · generate a drawing from text |
@@ -89,6 +90,26 @@ newborn → infant → child → adolescent → adult → sage
 > **ملاحظة حول الحجم · a note on scale:** النواة تعمل على المعالِج (CPU) بـ NumPy. النماذج الصغيرة الافتراضية تتعلّم بسرعة؛ لنموذج أكبر وأكثر فصاحة زِد `--layers/--embd/--block` ووفّر وقت تدريب أطول وبيانات أكثر.
 
 ---
+
+## التفكير والخوارزميات · Thinking & algorithms (v0.2)
+
+كيان لا يولّد نصًّا فقط — بل **يفكّر ثم ينفّذ**. يوجّه `act`/`ask` كل طلب إلى المهارة المناسبة:
+
+Kian doesn't only generate text — it **thinks, then acts**. `act`/`ask` routes each request to the fitting faculty:
+
+- **الحساب · math** عبر محلّل آمن (AST، بلا `eval` إطلاقًا) يفهم الأرقام العربية: `كم يساوي 12 * (3 + 4)؟`
+- **الذاكرة · memory**: `تذكر أن...` / `ماذا تتذكر عن...؟`
+- **الخوارزميات · algorithms**: `رتب 5 2 9` ، `الأعداد الأولية حتى 20`
+- **الرسم والرؤية · draw & see**: `ارسم...` ، `انظر للشاشة`
+- وإلا → **الدماغ اللغوي · the language brain**
+
+مكتبة `kian/algorithms/` فيها خوارزميات حقيقية مُختبَرة: الترتيب، البحث (BFS/DFS/Dijkstra/A*)، الرسوم البيانية (ترتيب طوبولوجي، MST)، البرمجة الديناميكية (مسافة التحرير، الحقيبة)، نظرية الأعداد، وتعلّم آلي كلاسيكي (k-means، kNN، الانحدار الخطي واللوجستي، PCA).
+
+A tested `kian/algorithms/` library: sorting, search (BFS/DFS/Dijkstra/A*), graphs
+(toposort, MST), dynamic programming (edit distance, knapsack), number theory,
+and classic ML (k-means, kNN, linear/logistic regression, PCA).
+
+**مزاج حيّ · a living mood**: حالة وجدانية (رضا/إثارة/فضول) تتغيّر بما يحدث، تؤثّر في حرارة توليد الكلام وفي تعابير وجهه. A simple affect state shifts with events and colours both speech and the face.
 
 ## الأمان · Safety (مهم · important)
 

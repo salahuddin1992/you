@@ -139,6 +139,12 @@ class Evolver:
                    f"Day {being.identity.days_lived}: trained {n_steps} steps, "
                    f"stage {new_stage}, loss {last_train:.2f}.")
         being.mind.learn_fact(journal, importance=1.5)
+        try:
+            being.mood.event("learned")
+            if grew:
+                being.mood.event("grew")
+        except Exception:
+            pass
         if grew:
             being.remember(f"لقد نموت! أصبحت الآن في مرحلة {new_stage}. "
                            f"I grew! I am now at the {new_stage} stage.", importance=3.0)

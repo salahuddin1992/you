@@ -93,6 +93,26 @@ life-cycle (birth → perceive/think/speak/see/draw → sleep/consolidate → gr
 persisted to a home directory. `app/server.py` + `templates/index.html` serve a
 local animated face that reacts to the being's state.
 
+## 9. Algorithms & thinking (v0.2) — `kian/algorithms`, `kian/mind`
+
+- **`algorithms/`** — a from-scratch, tested library the being can use as tools:
+  `sort` (quick/merge/heap/insertion), `search` (binary, BFS, DFS, Dijkstra,
+  A*), `graph` (toposort, components, cycles, Kruskal MST), `dp` (edit distance,
+  LCS, knapsack, LIS, coin change), `numbers` (gcd/lcm, sieve, factorisation,
+  modpow, extended Euclid), and `ml` (k-means++, kNN, linear/logistic
+  regression, PCA) — classic ML complementing the neural brain.
+- **`mind/tools.py`** — a safe arithmetic calculator: it parses to an AST and
+  walks a whitelist (numbers, operators, a fixed function set, pi/e). It never
+  uses `eval`/`exec` and rejects names, attributes, calls to anything
+  un-whitelisted, comprehensions and lambdas. Arabic-Indic digits are
+  normalised. `extract_expression` pulls an expression out of a sentence.
+- **`mind/mood.py`** — a 3-scalar affect state (valence/arousal/curiosity) that
+  reacts to events, decays to baseline, and maps to sampling temperature and the
+  face's expression.
+- **`mind/planner.py`** — the intent router. `Being.act` calls it to decide
+  between calculator, memory store/recall, algorithm tools, vision, drawing, or
+  the language model, returning the action taken and a one-line thought trace.
+
 ## Verification
 
 `tests/` promotes the engineering checks into a suite: float64 gradient checks

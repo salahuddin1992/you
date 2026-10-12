@@ -37,7 +37,9 @@ import numpy as np
 from .language.lm import LanguageModel
 from .language.tokenizer import Tokenizer
 from .mind.memory import Memory
+from .mind.mood import Mood
 from .mind.reasoner import Mind
+from .mind import planner as _planner
 
 # Developmental stages, keyed by the number of tokens the being has learned
 # from. Crossing a threshold is a genuine milestone the being can report.
@@ -70,6 +72,7 @@ class Identity:
     days_lived: int = 0
     last_awake: float = 0.0
     interactions: int = 0
+    mood: dict = field(default_factory=dict)
 
 
 class Being:
@@ -79,6 +82,7 @@ class Being:
         self.lm = lm
         self.identity = identity
         self.mind = Mind(lm, memory)
+        self.mood = Mood.from_dict(identity.mood)
 
     # ------------------------------------------------------------------ #
     # Birth & lifecycle
@@ -136,6 +140,7 @@ class Being:
         self.identity.tokens_seen = int(self.lm.meta.get("tokens_seen", self.identity.tokens_seen))
         self.identity.steps_trained = int(self.lm.meta.get("steps", self.identity.steps_trained))
         self.identity.stage = stage_for(self.identity.tokens_seen)
+        self.identity.mood = self.mood.to_dict()
         self.lm.meta["stage"] = self.identity.stage
         (self.home / "being.json").write_text(
             json.dumps(asdict(self.identity), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -167,6 +172,7 @@ class Being:
             "interactions": self.identity.interactions,
             "vocab": self.lm.tokenizer.vocab_size,
             "params": self.lm.model.num_parameters(),
+            "mood": self.mood.to_dict(),
         }
 
     # ------------------------------------------------------------------ #
@@ -184,7 +190,35 @@ class Being:
     def respond(self, text: str, **gen) -> str:
         self.identity.interactions += 1
         self.identity.last_awake = time.time()
+        self.mood.decay()
+        self.mood.event("greeted" if len(text) < 12 else "question")
+        gen.setdefault("temperature", self.mood.temperature())
         return self.mind.respond(text, **gen)
+
+    def act(self, text: str, **gen) -> dict:
+        """Think, then act: route the request to the fitting faculty (calculator,
+        memory, algorithms, vision, drawing) or fall back to the language brain.
+
+        Returns a dict describing the decision: ``action`` (what it did),
+        ``answer`` (the reply/result), ``thought`` (a one-line trace), and the
+        current ``mood``. This is how Kian shows it is thinking, not just talking.
+        """
+        self.identity.interactions += 1
+        self.identity.last_awake = time.time()
+        self.mood.decay()
+        plan = _planner.plan(text, self)
+        if plan is not None:
+            self.mood.event({"draw": "drew", "see": "saw_something",
+                             "recall": "question", "remember": "learned"}.get(plan.action, "positive"))
+            self.perceive(f"[{plan.action}] {text} -> {plan.answer}", kind="episodic")
+            return {"action": plan.action, "answer": plan.answer,
+                    "thought": plan.thought, "data": plan.data, "mood": self.mood.to_dict()}
+        # open-ended: use the language brain
+        self.mood.event("greeted" if len(text) < 12 else "question")
+        gen.setdefault("temperature", self.mood.temperature())
+        reply = self.mind.respond(text, **gen)
+        return {"action": "talk", "answer": reply, "thought": "free language generation",
+                "data": None, "mood": self.mood.to_dict()}
 
     # speak == generate free text from an internal prompt
     def speak(self, about: str = "", **gen) -> str:

@@ -138,7 +138,8 @@ async function api(path, body){
 }
 function renderVitals(v){
   hue = STAGE_HUE[v.stage] ?? 200;
-  $("#stageTag").textContent = v.stage;
+  if(v.mood && typeof v.mood.face === "number") mouth = v.mood.face;
+  $("#stageTag").textContent = v.stage + (v.mood ? " · " + v.mood.label_en : "");
   $("#vitals").innerHTML = `
     <div class="vit"><b>${v.stage}</b><span>المرحلة · stage</span></div>
     <div class="vit"><b>${v.age_days}</b><span>العمر (يوم) · age (days)</span></div>
@@ -155,7 +156,11 @@ async function send(){
   const el=$("#input"), text=el.value.trim(); if(!text) return;
   el.value=""; addMsg("me",text); setState("thinking"); $("#send").disabled=true;
   try{ const r=await api("/api/chat",{text}); renderVitals(r.vitals);
-    setState("speaking"); addMsg("ki", r.reply || "…"); setTimeout(()=>setState("idle"),1200);
+    setState("speaking"); addMsg("ki", r.reply || "…");
+    if(r.action && r.action!=="talk"){ const m=document.createElement("div");
+      m.className="meta"; m.textContent=`⚙︎ ${r.action} — ${r.thought}`; $("#log").appendChild(m); }
+    $("#log").scrollTop=$("#log").scrollHeight;
+    setTimeout(()=>setState("idle"),1200);
   }catch(e){ addMsg("ki","[خطأ]"); setState("idle"); }
   $("#send").disabled=false; el.focus();
 }
