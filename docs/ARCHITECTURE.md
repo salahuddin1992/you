@@ -39,6 +39,12 @@ and a `CosineWarmup` schedule.
 - **`data.py` / `trainer.py` / `lm.py`** — batching, the AdamW+cosine training
   loop with validation and gradient-health logging, and a high-level
   `LanguageModel` that binds tokenizer+model and defines the checkpoint format.
+- **`infer.py` / `sampling.py`** (v0.3) — generation runs on a pure-NumPy,
+  no-autograd inference path with a per-block key/value cache, so each new token
+  costs O(context) not O(context²); it reproduces the training forward's
+  arithmetic exactly (asserted in tests: cached greedy == reference greedy).
+  The sampler adds temperature, top-k, nucleus (top-p), min-p and a
+  repetition penalty.
 
 ## 3. Vision — `kian/vision`
 

@@ -53,7 +53,8 @@ class Mind:
     def recall(self, query: str, k: int = 4) -> List[str]:
         return [it.text for it in self.memory.recall(query, k=k)]
 
-    def think(self, prompt: str, max_new_tokens: int = 120, temperature: float = 0.8) -> str:
+    def think(self, prompt: str, max_new_tokens: int = 120, temperature: float = 0.8,
+              top_p: float = 0.92, repetition_penalty: float = 1.3) -> str:
         memories = self.recall(prompt, k=3)
         context = ""
         if memories:
@@ -65,7 +66,8 @@ class Mind:
         ids = np.array([ids[-self.lm.model.cfg.block_size :]], dtype=np.int64)
         rng = np.random.default_rng()
         out = self.lm.model.generate(ids, max_new_tokens=max_new_tokens,
-                                     temperature=temperature, top_k=40, rng=rng)
+                                     temperature=temperature, top_k=40, top_p=top_p,
+                                     min_p=0.02, repetition_penalty=repetition_penalty, rng=rng)
         text = tok.decode(out[0, len(ids[0]):].tolist())
         for b in ("<user>", "<kian>", "<eos>"):
             if b in text:

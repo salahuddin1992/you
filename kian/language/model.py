@@ -178,33 +178,62 @@ class GPT(Module):
         max_new_tokens: int,
         temperature: float = 1.0,
         top_k: int | None = None,
+        top_p: float | None = None,
+        min_p: float | None = None,
+        repetition_penalty: float = 1.0,
+        repetition_window: int = 64,
+        greedy: bool = False,
         rng: np.random.Generator | None = None,
     ) -> np.ndarray:
         """Autoregressively sample ``max_new_tokens`` continuations.
 
-        ``idx`` is an integer array of shape ``(B, T0)``. Returns ``(B, T0+N)``.
-        Runs under eval mode so dropout is disabled.
+        Uses the pure-NumPy KV-cached inference path (no autograd graph), so
+        each new token costs O(context) rather than O(context²). ``idx`` is an
+        integer array ``(B, T0)``; returns ``(B, T0+N)``. Sampling controls:
+        ``temperature``, ``top_k``, ``top_p`` (nucleus), ``min_p``, and a
+        ``repetition_penalty`` applied over the last ``repetition_window``
+        tokens. ``greedy`` takes the argmax.
         """
+        from .infer import KVCache, forward_infer
+        from .sampling import sample_logits
+
         rng = rng or np.random.default_rng()
-        was_training = self.training
-        self.eval()
         idx = np.asarray(idx).copy()
+        B = idx.shape[0]
+        bs = self.cfg.block_size
+
+        def new_cache() -> "KVCache":
+            return KVCache(len(self.blocks))
+
+        # Prefill with the last block_size tokens of the prompt.
+        cache = new_cache()
+        window = idx[:, -bs:]
+        logits = forward_infer(self, window, cache, start=0)
+        last = logits[:, -1, :]
+        cached_len = window.shape[1]
+
         for _ in range(max_new_tokens):
-            ctx = idx[:, -self.cfg.block_size :]
-            logits = self.forward(ctx).data            # (B, t, vocab)
-            logits = logits[:, -1, :] / max(1e-6, temperature)
-            if top_k is not None:
-                k = min(top_k, logits.shape[-1])
-                kth = np.sort(logits, axis=-1)[:, -k][:, None]
-                logits = np.where(logits < kth, -1e9, logits)
-            # stable softmax
-            logits = logits - logits.max(axis=-1, keepdims=True)
-            probs = np.exp(logits)
-            probs /= probs.sum(axis=-1, keepdims=True)
-            nxt = np.array([rng.choice(probs.shape[-1], p=probs[b]) for b in range(probs.shape[0])])
+            nxt = np.array([
+                sample_logits(last[b], rng, temperature=temperature, top_k=top_k,
+                              top_p=top_p, min_p=min_p,
+                              recent=idx[b, -repetition_window:].tolist(),
+                              repetition_penalty=repetition_penalty, greedy=greedy)
+                for b in range(B)
+            ])
             idx = np.concatenate([idx, nxt[:, None]], axis=1)
-        if was_training:
-            self.train()
+            if cached_len >= bs:
+                # Context window full: positions would shift on truncation, so
+                # rebuild the cache from the last block_size tokens (exact, and
+                # still far cheaper than per-step autograd).
+                cache = new_cache()
+                window = idx[:, -bs:]
+                logits = forward_infer(self, window, cache, start=0)
+                last = logits[:, -1, :]
+                cached_len = bs
+            else:
+                logits = forward_infer(self, nxt[:, None], cache, start=cached_len)
+                last = logits[:, -1, :]
+                cached_len += 1
         return idx
 
     def num_parameters(self) -> int:

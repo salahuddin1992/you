@@ -49,13 +49,17 @@ class LanguageModel:
         max_new_tokens: int = 120,
         temperature: float = 0.9,
         top_k: Optional[int] = 40,
+        top_p: Optional[float] = 0.92,
+        min_p: Optional[float] = 0.02,
+        repetition_penalty: float = 1.3,
         seed: Optional[int] = None,
     ) -> str:
         rng = np.random.default_rng(seed)
         ids = self.tokenizer.encode(prompt) if prompt else [self.tokenizer.encode_special("<bos>")]
         ids = np.array([ids], dtype=np.int64)
         out = self.model.generate(
-            ids, max_new_tokens=max_new_tokens, temperature=temperature, top_k=top_k, rng=rng
+            ids, max_new_tokens=max_new_tokens, temperature=temperature, top_k=top_k,
+            top_p=top_p, min_p=min_p, repetition_penalty=repetition_penalty, rng=rng
         )
         new_ids = out[0, len(ids[0]) :].tolist()
         return self.tokenizer.decode(new_ids)
@@ -69,7 +73,9 @@ class LanguageModel:
         rng = np.random.default_rng()
         out = self.model.generate(ids, max_new_tokens=gen.get("max_new_tokens", 120),
                                   temperature=gen.get("temperature", 0.9),
-                                  top_k=gen.get("top_k", 40), rng=rng)
+                                  top_k=gen.get("top_k", 40), top_p=gen.get("top_p", 0.92),
+                                  min_p=gen.get("min_p", 0.02),
+                                  repetition_penalty=gen.get("repetition_penalty", 1.3), rng=rng)
         text = self.tokenizer.decode(out[0, len(ids[0]):].tolist())
         # cut at the next role boundary if the model emits one
         for boundary in ("<user>", "<eos>", "<kian>"):
