@@ -42,19 +42,45 @@ class _TextExtractor(HTMLParser):
                 self.parts.append(t)
 
 
+def _decode_bytes(data: bytes, content_type: str, declared: str | None) -> str:
+    """Decode a response body without mangling UTF-8 pages.
+
+    Order: an explicit ``charset=`` in the Content-Type header; else an HTML
+    ``<meta charset>``; else strict UTF-8; else the transport's declared guess
+    (requests defaults text/* to ISO-8859-1, which turns Arabic into mojibake —
+    hence it is the LAST resort, not the first).
+    """
+    m = re.search(r"charset=([\w\-]+)", (content_type or "").lower())
+    if m:
+        try:
+            return data.decode(m.group(1), errors="replace")
+        except LookupError:
+            pass
+    head = data[:4096].decode("ascii", errors="ignore").lower()
+    m = re.search(r'charset=["\']?([\w\-]+)', head)
+    if m:
+        try:
+            return data.decode(m.group(1), errors="replace")
+        except LookupError:
+            pass
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode(declared or "latin-1", errors="replace")
+
+
 def _fetch(url: str) -> str:
     try:
         import requests  # type: ignore
         r = requests.get(url, timeout=TIMEOUT, headers={"User-Agent": "Kian/0.1"}, stream=True)
         r.raise_for_status()
         content = r.raw.read(MAX_BYTES, decode_content=True)
-        enc = r.encoding or "utf-8"
-        return content.decode(enc, errors="replace")
+        return _decode_bytes(content, r.headers.get("content-type", ""), r.encoding)
     except ImportError:
         from urllib.request import Request, urlopen
         req = Request(url, headers={"User-Agent": "Kian/0.1"})
         with urlopen(req, timeout=TIMEOUT) as resp:  # noqa: S310 (scheme checked below)
-            return resp.read(MAX_BYTES).decode("utf-8", errors="replace")
+            return _decode_bytes(resp.read(MAX_BYTES), resp.headers.get("Content-Type", ""), None)
 
 
 def read_page(url: str, max_chars: int = 4000) -> str:

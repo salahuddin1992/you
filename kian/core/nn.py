@@ -118,9 +118,12 @@ class Linear(Module):
     def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
         super().__init__()
         # Kaiming/He-style scaling keeps activation variance stable through depth.
+        # Cast AFTER scaling: np.sqrt returns an np.float64 scalar, and under
+        # NumPy 2 promotion float32_array * np.float64_scalar is float64, which
+        # would silently make every Linear run (and checkpoint) in float64.
         scale = np.sqrt(2.0 / in_features)
         self.weight = Parameter(
-            np.random.randn(in_features, out_features).astype(np.float32) * scale
+            (np.random.randn(in_features, out_features) * scale).astype(np.float32)
         )
         self.bias = Parameter(np.zeros(out_features, dtype=np.float32)) if bias else None
 
@@ -155,10 +158,8 @@ class LayerNorm(Module):
         self.beta = Parameter(np.zeros(dim, dtype=np.float32))
 
     def forward(self, x: Tensor) -> Tensor:
-        mu = x.mean(axis=-1, keepdims=True)
-        var = x.var(axis=-1, keepdims=True)
-        normed = (x - mu) / (var + self.eps).sqrt()
-        return normed * self.gamma + self.beta
+        from .tensor import layer_norm
+        return layer_norm(x, self.gamma, self.beta, self.eps)
 
 
 class Dropout(Module):

@@ -39,7 +39,7 @@ def cmd_birth(args) -> None:
                         block_size=args.block)
     print(f"🌱 Born: {being}")
     print(f"   home: {Path(args.home).resolve()}")
-    print("   Next: `python -m kian evolve --home {h}` to let it start learning."
+    print("   Next: `python -m kian --home {h} evolve` to let it start learning."
           .format(h=args.home))
 
 
@@ -70,10 +70,20 @@ def cmd_chat(args) -> None:
             break
         if text == "save":
             being.save(); print("   (saved)"); continue
-        reply = being.respond(text, max_new_tokens=args.tokens, temperature=args.temp)
-        print(f"{being.identity.name} » {reply}\n")
+        out = being.act(text, max_new_tokens=args.tokens, temperature=args.temp)
+        tag = "" if out["action"] == "talk" else f"  \033[2m[{out['action']}: {out['thought']}]\033[0m"
+        print(f"{being.identity.name} » {out['answer']}{tag}\n")
     being.save()
     print("   (saved. goodbye)")
+
+
+def cmd_ask(args) -> None:
+    being = _load_or_birth(args.home)
+    out = being.act(args.text, max_new_tokens=args.tokens)
+    print(f"[{out['action']}] {out['answer']}")
+    if out["action"] != "talk":
+        print(f"  ↳ {out['thought']}")
+    being.save()
 
 
 def cmd_train(args) -> None:
@@ -119,16 +129,47 @@ def cmd_face(args) -> None:
 
 def cmd_see(args) -> None:
     if args.image:
-        from .vision.image import analyze_image
-        print(analyze_image(args.image))
+        being = _load_or_birth(args.home)
+        print(being.see_image(args.image))
+        being.save()
     else:
         from .senses.screen import describe_screen
         print(describe_screen())
 
 
+def cmd_learn_images(args) -> None:
+    being = _load_or_birth(args.home)
+    print(f"👁️  learning images from {args.folder} ...")
+    acc = being.learn_images(args.folder, epochs=args.epochs, log=print)
+    being.save()
+    print(f"✅ vision trained: {acc * 100:.1f}% accuracy. Saved to {being.home / 'vision'}")
+
+
 def cmd_browse(args) -> None:
     from .senses.web import read_page
     print(read_page(args.url, max_chars=args.chars))
+
+
+def cmd_say(args) -> None:
+    being = _load_or_birth(args.home)
+    res = being.say(args.text)
+    being.save()
+    if res.get("spoken"):
+        print(f"🔊 ({res['backend']}) {res['text']}")
+    else:
+        print(f"🔇 {res['text']}\n   {res.get('note', '')}")
+
+
+def cmd_feed(args) -> None:
+    from .evolve.feed import feed
+    path = feed(args.target, inbox=args.inbox)
+    print(f"🍃 fed into inbox -> {path}")
+    print("   Kian will learn it on the next `evolve` cycle.")
+
+
+def cmd_metrics(args) -> None:
+    from .evolve.metrics import summary_text
+    print(summary_text(args.home))
 
 
 def cmd_live(args) -> None:
@@ -155,6 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("chat", help="interactive conversation")
     c.add_argument("--tokens", type=int, default=120); c.add_argument("--temp", type=float, default=0.8)
     c.set_defaults(func=cmd_chat)
+
+    a = sub.add_parser("ask", help="one-shot: think and act on a request")
+    a.add_argument("text"); a.add_argument("--tokens", type=int, default=100)
+    a.set_defaults(func=cmd_ask)
 
     t = sub.add_parser("train", help="one training pass over the corpus")
     t.add_argument("--corpus", default="data/corpus/*.txt")
@@ -183,9 +228,23 @@ def build_parser() -> argparse.ArgumentParser:
     v = sub.add_parser("see", help="describe the screen or an image")
     v.add_argument("--image", default=None); v.set_defaults(func=cmd_see)
 
+    li = sub.add_parser("learn-images", help="train vision on labelled image sub-folders")
+    li.add_argument("folder"); li.add_argument("--epochs", type=int, default=40)
+    li.set_defaults(func=cmd_learn_images)
+
     w = sub.add_parser("browse", help="read a web page")
     w.add_argument("url"); w.add_argument("--chars", type=int, default=4000)
     w.set_defaults(func=cmd_browse)
+
+    sy = sub.add_parser("say", help="speak text aloud (needs a TTS backend)")
+    sy.add_argument("text"); sy.set_defaults(func=cmd_say)
+
+    fd = sub.add_parser("feed", help="feed a file or URL into the inbox to learn")
+    fd.add_argument("target"); fd.add_argument("--inbox", default="data/inbox")
+    fd.set_defaults(func=cmd_feed)
+
+    mt = sub.add_parser("metrics", help="report the being's growth")
+    mt.set_defaults(func=cmd_metrics)
 
     l = sub.add_parser("live", help="launch the web UI (the face)")
     l.add_argument("--host", default="127.0.0.1"); l.add_argument("--port", type=int, default=7860)

@@ -36,6 +36,7 @@ class TrainConfig:
     eval_every: int = 50
     eval_batches: int = 8
     seed: int = 1337
+    accum_steps: int = 1   # gradient accumulation: micro-batches per optimizer update
     log: Optional[Callable[[str], None]] = print
 
 
@@ -67,19 +68,32 @@ class Trainer:
         model.train()
         start = time.time()
         running = None
+        accum = max(1, int(c.accum_steps))
+        gnorm = 0.0
         for step in range(1, c.steps + 1):
             lr = self.sched.step()
             x, y = train_ds.batch(c.batch_size, self.rng)
-            model.zero_grad()
+            if (step - 1) % accum == 0:
+                model.zero_grad()
             loss = model.loss(x, y)
-            loss.backward()
-            gnorm = clip_grad_norm_(model.parameters(), c.grad_clip)
-            self.opt.step()
-
             lv = loss.item()
             if not math.isfinite(lv):
-                self._log(f"[step {step}] non-finite loss ({lv}); stopping to protect the model.")
+                # Check BEFORE backward/step: a NaN loss means NaN gradients,
+                # which clipping cannot remove and AdamW would write into every
+                # parameter and its moment buffers. Nothing has been applied
+                # yet, so the model (and any later save) stays intact.
+                model.zero_grad()
+                self._log(f"[step {step}] non-finite loss ({lv}); stopping before it touches the weights.")
                 break
+            # Scale so the accumulated gradient equals the mean over micro-batches.
+            (loss * (1.0 / accum)).backward()
+            if step % accum == 0:
+                gnorm = clip_grad_norm_(model.parameters(), c.grad_clip)
+                if not math.isfinite(gnorm):
+                    model.zero_grad()
+                    self._log(f"[step {step}] non-finite gradient norm; update skipped, stopping.")
+                    break
+                self.opt.step()
             running = lv if running is None else 0.9 * running + 0.1 * lv
             self.lm.meta["steps"] = self.lm.meta.get("steps", 0) + 1
             self.lm.meta["tokens_seen"] = self.lm.meta.get("tokens_seen", 0) + x.size

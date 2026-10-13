@@ -122,7 +122,10 @@ class Computer:
         return res
 
     def type_text(self, text: str, interval: float = 0.01) -> ActionResult:
-        refused = self._gate(f"type_text ({len(text)} chars)", self.policy.allow_typing,
+        # The label carries the text itself so the gate's hard-blocklist check
+        # sees what would be typed: 'rm -rf ~' typed into a terminal is refused
+        # exactly like the same string run as a command.
+        refused = self._gate(f"type_text: {text[:300]}", self.policy.allow_typing,
                              "typing disabled by policy")
         if refused:
             return refused

@@ -37,7 +37,9 @@ import numpy as np
 from .language.lm import LanguageModel
 from .language.tokenizer import Tokenizer
 from .mind.memory import Memory
+from .mind.mood import Mood
 from .mind.reasoner import Mind
+from .mind import planner as _planner
 
 # Developmental stages, keyed by the number of tokens the being has learned
 # from. Crossing a threshold is a genuine milestone the being can report.
@@ -70,6 +72,7 @@ class Identity:
     days_lived: int = 0
     last_awake: float = 0.0
     interactions: int = 0
+    mood: dict = field(default_factory=dict)
 
 
 class Being:
@@ -79,6 +82,7 @@ class Being:
         self.lm = lm
         self.identity = identity
         self.mind = Mind(lm, memory)
+        self.mood = Mood.from_dict(identity.mood)
 
     # ------------------------------------------------------------------ #
     # Birth & lifecycle
@@ -136,6 +140,7 @@ class Being:
         self.identity.tokens_seen = int(self.lm.meta.get("tokens_seen", self.identity.tokens_seen))
         self.identity.steps_trained = int(self.lm.meta.get("steps", self.identity.steps_trained))
         self.identity.stage = stage_for(self.identity.tokens_seen)
+        self.identity.mood = self.mood.to_dict()
         self.lm.meta["stage"] = self.identity.stage
         (self.home / "being.json").write_text(
             json.dumps(asdict(self.identity), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -167,6 +172,7 @@ class Being:
             "interactions": self.identity.interactions,
             "vocab": self.lm.tokenizer.vocab_size,
             "params": self.lm.model.num_parameters(),
+            "mood": self.mood.to_dict(),
         }
 
     # ------------------------------------------------------------------ #
@@ -184,7 +190,35 @@ class Being:
     def respond(self, text: str, **gen) -> str:
         self.identity.interactions += 1
         self.identity.last_awake = time.time()
+        self.mood.decay()
+        self.mood.event("greeted" if len(text) < 12 else "question")
+        gen.setdefault("temperature", self.mood.temperature())
         return self.mind.respond(text, **gen)
+
+    def act(self, text: str, **gen) -> dict:
+        """Think, then act: route the request to the fitting faculty (calculator,
+        memory, algorithms, vision, drawing) or fall back to the language brain.
+
+        Returns a dict describing the decision: ``action`` (what it did),
+        ``answer`` (the reply/result), ``thought`` (a one-line trace), and the
+        current ``mood``. This is how Kian shows it is thinking, not just talking.
+        """
+        self.identity.interactions += 1
+        self.identity.last_awake = time.time()
+        self.mood.decay()
+        plan = _planner.plan(text, self)
+        if plan is not None:
+            self.mood.event({"draw": "drew", "see": "saw_something",
+                             "recall": "question", "remember": "learned"}.get(plan.action, "positive"))
+            self.perceive(f"[{plan.action}] {text} -> {plan.answer}", kind="episodic")
+            return {"action": plan.action, "answer": plan.answer,
+                    "thought": plan.thought, "data": plan.data, "mood": self.mood.to_dict()}
+        # open-ended: use the language brain
+        self.mood.event("greeted" if len(text) < 12 else "question")
+        gen.setdefault("temperature", self.mood.temperature())
+        reply = self.mind.respond(text, **gen)
+        return {"action": "talk", "answer": reply, "thought": "free language generation",
+                "data": None, "mood": self.mood.to_dict()}
 
     # speak == generate free text from an internal prompt
     def speak(self, about: str = "", **gen) -> str:
@@ -205,10 +239,33 @@ class Being:
         return desc
 
     def see_image(self, path: str) -> str:
+        """Describe an image; if the being has learned to classify images,
+        also say what it thinks the image is, with a confidence."""
         from .vision.image import analyze_image
         desc = analyze_image(path)
+        try:
+            from .vision.learn import VisionClassifier
+            from .util.imageio import load_image
+            clf = VisionClassifier.load(self.home / "vision")
+            if clf is not None:
+                label, conf = clf.predict(load_image(path))
+                desc += f" أظنّها: {label} ({conf * 100:.0f}%) · I think it's a {label} ({conf * 100:.0f}%)."
+        except Exception:
+            pass
         self.perceive(f"[saw image {path}] {desc}", kind="perception")
+        self.mood.event("saw_something")
         return desc
+
+    def learn_images(self, folder: str, epochs: int = 40, log=None) -> float:
+        """Train the vision network on labelled sub-folders of ``folder``.
+        Returns training accuracy. The classifier is saved in the home."""
+        from .vision.learn import train_from_folder
+        _, acc = train_from_folder(folder, self.home / "vision", epochs=epochs, log=log)
+        self.remember(f"تعلّمت التعرّف على الصور من {folder} بدقة {acc * 100:.0f}%. "
+                      f"I learned to recognise images from {folder} ({acc * 100:.0f}% accuracy).",
+                      importance=2.0)
+        self.mood.event("learned")
+        return acc
 
     def draw(self, prompt: str = "", out_path: str = "drawing.png") -> str:
         from .draw.canvas import draw_from_text
@@ -221,6 +278,17 @@ class Being:
         text = read_page(url)
         self.perceive(f"[read web {url}] {text[:400]}", kind="perception")
         return text
+
+    def say(self, text: str) -> dict:
+        """Speak text aloud (if a TTS backend is available) and feel it."""
+        from .senses.voice import speak
+        self.mood.event("positive")
+        return speak(text)
+
+    def growth(self) -> str:
+        """A one-line self-report of how much the being has grown."""
+        from .evolve.metrics import summary_text
+        return summary_text(self.home)
 
     def __repr__(self) -> str:
         v = self.vitals()

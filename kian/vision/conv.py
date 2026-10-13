@@ -87,7 +87,8 @@ class Conv2d(Module):
         super().__init__()
         self.stride, self.pad = stride, pad
         scale = np.sqrt(2.0 / (in_ch * kernel * kernel))
-        self.weight = Parameter(np.random.randn(out_ch, in_ch, kernel, kernel).astype(np.float32) * scale)
+        # cast after scaling so the np.float64 scale cannot promote to float64
+        self.weight = Parameter((np.random.randn(out_ch, in_ch, kernel, kernel) * scale).astype(np.float32))
         self.bias = Parameter(np.zeros(out_ch, dtype=np.float32))
 
     def forward(self, x: Tensor) -> Tensor:

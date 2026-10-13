@@ -56,6 +56,7 @@
       <button class="ghost" id="btnDraw">🎨 ارسم · Draw</button>
       <button class="ghost" id="btnSee">👁️ انظر · See</button>
       <button class="ghost" id="btnFace">🫧 شكلي · Form</button>
+      <button class="ghost" id="btnGrowth">📈 نموّي · Growth</button>
     </div>
     <div class="out" id="out"></div>
   </section>
@@ -138,7 +139,8 @@ async function api(path, body){
 }
 function renderVitals(v){
   hue = STAGE_HUE[v.stage] ?? 200;
-  $("#stageTag").textContent = v.stage;
+  if(v.mood && typeof v.mood.face === "number") mouth = v.mood.face;
+  $("#stageTag").textContent = v.stage + (v.mood ? " · " + v.mood.label_en : "");
   $("#vitals").innerHTML = `
     <div class="vit"><b>${v.stage}</b><span>المرحلة · stage</span></div>
     <div class="vit"><b>${v.age_days}</b><span>العمر (يوم) · age (days)</span></div>
@@ -155,7 +157,14 @@ async function send(){
   const el=$("#input"), text=el.value.trim(); if(!text) return;
   el.value=""; addMsg("me",text); setState("thinking"); $("#send").disabled=true;
   try{ const r=await api("/api/chat",{text}); renderVitals(r.vitals);
-    setState("speaking"); addMsg("ki", r.reply || "…"); setTimeout(()=>setState("idle"),1200);
+    setState("speaking"); addMsg("ki", r.reply || "…");
+    if(r.image){ const im=document.createElement("img"); im.src=r.image; im.alt="drawing";
+      im.style.cssText="max-width:84%;border-radius:12px;align-self:flex-end;border:1px solid var(--line)";
+      $("#log").appendChild(im); }
+    if(r.action && r.action!=="talk"){ const m=document.createElement("div");
+      m.className="meta"; m.textContent=`⚙︎ ${r.action} — ${r.thought}`; $("#log").appendChild(m); }
+    $("#log").scrollTop=$("#log").scrollHeight;
+    setTimeout(()=>setState("idle"),1200);
   }catch(e){ addMsg("ki","[خطأ]"); setState("idle"); }
   $("#send").disabled=false; el.focus();
 }
@@ -173,6 +182,7 @@ $("#btnDraw").onclick=async()=>{ const p=prompt("ارسم لي… · draw me…"
 $("#btnSee").onclick=async()=>{ setState("thinking"); const r=await api("/api/see",{});
   $("#out").innerHTML=`<p class='meta'>${r.description||""}</p>`; setState("idle"); };
 $("#btnFace").onclick=async()=>{ const r=await api("/api/face"); $("#out").innerHTML=`<img src="${r.image}" alt="form"/>`; };
+$("#btnGrowth").onclick=async()=>{ const r=await api("/api/growth"); $("#out").innerHTML=`<p class='meta'>${r.description||""}</p>`; };
 
 (async()=>{ renderVitals(await api("/api/vitals")); setState("idle"); })();
 </script>

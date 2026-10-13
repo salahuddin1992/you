@@ -39,6 +39,12 @@ and a `CosineWarmup` schedule.
 - **`data.py` / `trainer.py` / `lm.py`** — batching, the AdamW+cosine training
   loop with validation and gradient-health logging, and a high-level
   `LanguageModel` that binds tokenizer+model and defines the checkpoint format.
+- **`infer.py` / `sampling.py`** (v0.3) — generation runs on a pure-NumPy,
+  no-autograd inference path with a per-block key/value cache, so each new token
+  costs O(context) not O(context²); it reproduces the training forward's
+  arithmetic exactly (asserted in tests: cached greedy == reference greedy).
+  The sampler adds temperature, top-k, nucleus (top-p), min-p and a
+  repetition penalty.
 
 ## 3. Vision — `kian/vision`
 
@@ -93,7 +99,49 @@ life-cycle (birth → perceive/think/speak/see/draw → sleep/consolidate → gr
 persisted to a home directory. `app/server.py` + `templates/index.html` serve a
 local animated face that reacts to the being's state.
 
+## 9. Algorithms & thinking (v0.2) — `kian/algorithms`, `kian/mind`
+
+- **`algorithms/`** — a from-scratch, tested library the being can use as tools:
+  `sort` (quick/merge/heap/insertion), `search` (binary, BFS, DFS, Dijkstra,
+  A*), `graph` (toposort, components, cycles, Kruskal MST), `dp` (edit distance,
+  LCS, knapsack, LIS, coin change), `numbers` (gcd/lcm, sieve, factorisation,
+  modpow, extended Euclid), and `ml` (k-means++, kNN, linear/logistic
+  regression, PCA) — classic ML complementing the neural brain.
+- **`mind/tools.py`** — a safe arithmetic calculator: it parses to an AST and
+  walks a whitelist (numbers, operators, a fixed function set, pi/e). It never
+  uses `eval`/`exec` and rejects names, attributes, calls to anything
+  un-whitelisted, comprehensions and lambdas. Arabic-Indic digits are
+  normalised. `extract_expression` pulls an expression out of a sentence.
+- **`mind/mood.py`** — a 3-scalar affect state (valence/arousal/curiosity) that
+  reacts to events, decays to baseline, and maps to sampling temperature and the
+  face's expression.
+- **`mind/planner.py`** — the intent router. `Being.act` calls it to decide
+  between calculator, memory store/recall, algorithm tools, vision, drawing, or
+  the language model, returning the action taken and a one-line thought trace.
+
+## 10. Learning from your images & steadier training (v0.5)
+
+- **`vision/learn.py`** — `train_from_folder` turns a directory of labelled
+  sub-folders into a dataset (dependency-free image loading, nearest-neighbour
+  resize to 32×32) and trains the from-scratch CNN; `VisionClassifier`
+  persists to the being's `home/vision/` and `Being.see_image` consults it
+  automatically to name what it sees with a confidence. Defaults use small
+  batches because the number of gradient steps, not epochs, is what a tiny
+  convnet needs on a small folder.
+- **`trainer.py`** — `TrainConfig.accum_steps` accumulates gradients over
+  several micro-batches before each optimizer update (loss scaled by
+  1/accum), giving a larger effective batch on the same memory; a test
+  asserts it equals a single update on the mean gradient.
+
 ## Verification
+
+An adversarial audit (v0.6) ran five independent reviewers over the layers,
+then three refuters per finding who re-read the code and executed each repro;
+all 19 surviving defects were fixed with regression tests in
+`tests/test_audit_fixes.py` (notably: NumPy-2 float64 promotion of Linear/
+attention, a NaN loss reaching the optimizer, calculator `pow()` bounds,
+blocklist spelling variants, charset-less UTF-8 pages, interlaced PNGs,
+special tokens absent from training, and a dataset off-by-one).
 
 `tests/` promotes the engineering checks into a suite: float64 gradient checks
 for the autodiff engine and `conv2d`, Transformer overfitting, multilingual

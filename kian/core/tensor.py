@@ -75,10 +75,28 @@ def _unbroadcast(grad: np.ndarray, shape: Shape) -> np.ndarray:
     return grad.reshape(shape)
 
 
+def _is_basic_index(idx) -> bool:
+    """True when ``idx`` uses only ints/slices/Ellipsis/None (no fancy arrays).
+
+    Basic indexing selects each element at most once, so its gradient can be
+    written with a plain assignment instead of the much slower ``np.add.at``
+    (which must tolerate repeated indices). Fancy indexing — used by
+    ``Embedding`` lookups, where ids repeat — still takes the accumulate path.
+    """
+    parts = idx if isinstance(idx, tuple) else (idx,)
+    return all(p is None or p is Ellipsis or isinstance(p, (int, slice, np.integer))
+               for p in parts)
+
+
 class Tensor:
     """A node in the automatic-differentiation graph."""
 
     __slots__ = ("data", "grad", "requires_grad", "_backward", "_prev", "_op")
+
+    # Tell NumPy not to handle ufuncs with a Tensor operand, so expressions
+    # like ``np.float64(2.0) - tensor`` dispatch to Tensor.__rsub__ (and keep
+    # the Tensor's dtype) instead of NumPy coercing the Tensor itself.
+    __array_ufunc__ = None
 
     def __init__(
         self,
@@ -130,8 +148,24 @@ class Tensor:
     def _accumulate(self, g: np.ndarray) -> None:
         if not self.requires_grad:
             return
-        g = _unbroadcast(g, self.shape).astype(self.data.dtype)
-        self.grad = g if self.grad is None else self.grad + g
+        g = _unbroadcast(g, self.shape)
+        if g.dtype != self.data.dtype:
+            g = g.astype(self.data.dtype)   # copy only when a cast is needed
+        if self.grad is None:
+            # Own the buffer: ``g`` may alias an upstream grad array.
+            self.grad = g.copy()
+        else:
+            self.grad += g                  # in-place accumulate, no new array
+
+    def _coerce(self, other) -> "Tensor":
+        """Wrap an operand as a Tensor. Python/NumPy scalars and lists take THIS
+        tensor's dtype, so an np.float64 scalar (e.g. ``1/np.sqrt(d)``) never
+        promotes a float32 activation/gradient stream to float64."""
+        if isinstance(other, Tensor):
+            return other
+        if isinstance(other, np.ndarray):
+            return Tensor(other)
+        return Tensor(np.asarray(other, dtype=self.data.dtype))
 
     def zero_grad(self) -> None:
         self.grad = None
@@ -166,7 +200,7 @@ class Tensor:
     # Elementwise arithmetic
     # ------------------------------------------------------------------ #
     def __add__(self, other: ArrayLike) -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         out = Tensor(
             self.data + other.data,
             self.requires_grad or other.requires_grad,
@@ -184,7 +218,7 @@ class Tensor:
         return out
 
     def __mul__(self, other: ArrayLike) -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         out = Tensor(
             self.data * other.data,
             self.requires_grad or other.requires_grad,
@@ -208,13 +242,21 @@ class Tensor:
         def _backward() -> None:
             if out.grad is None:
                 return
-            self._accumulate(out.grad * (p * self.data ** (p - 1)))
+            if p == 2:
+                d = 2.0 * self.data
+            elif p == -1:
+                d = -1.0 / (self.data * self.data)
+            elif p == 0.5:
+                d = 0.5 / out.data            # out.data == sqrt(x)
+            else:
+                d = p * self.data ** (p - 1)
+            self._accumulate(out.grad * d)
 
         out._backward = _backward
         return out
 
     def __matmul__(self, other: "Tensor") -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         out = Tensor(
             self.data @ other.data,
             self.requires_grad or other.requires_grad,
@@ -227,8 +269,23 @@ class Tensor:
                 return
             # d/dA (A@B) = grad @ B^T ; d/dB (A@B) = A^T @ grad
             a, b, g = self.data, other.data, out.grad
-            self._accumulate(g @ np.swapaxes(b, -1, -2))
-            other._accumulate(np.swapaxes(a, -1, -2) @ g)
+            # Promote 1-D operands to 2-D so the standard formulas apply, then
+            # squeeze the gradients back (vector @ matrix, matrix @ vector, dot).
+            a2 = a[None, :] if a.ndim == 1 else a
+            b2 = b[:, None] if b.ndim == 1 else b
+            g2 = g
+            if a.ndim == 1:
+                g2 = g2[None, ...]
+            if b.ndim == 1:
+                g2 = g2[..., None]
+            ga = g2 @ np.swapaxes(b2, -1, -2)
+            gb = np.swapaxes(a2, -1, -2) @ g2
+            if a.ndim == 1:
+                ga = ga[0]
+            if b.ndim == 1:
+                gb = gb[..., 0]
+            self._accumulate(ga)
+            other._accumulate(gb)
 
         out._backward = _backward
         return out
@@ -238,10 +295,10 @@ class Tensor:
         return self * -1.0
 
     def __sub__(self, other: ArrayLike) -> "Tensor":
-        return self + (-(other if isinstance(other, Tensor) else Tensor(other)))
+        return self + (-self._coerce(other))
 
     def __rsub__(self, other: ArrayLike) -> "Tensor":
-        return (Tensor(other) if not isinstance(other, Tensor) else other) + (-self)
+        return self._coerce(other) + (-self)
 
     def __radd__(self, other: ArrayLike) -> "Tensor":
         return self + other
@@ -250,11 +307,11 @@ class Tensor:
         return self * other
 
     def __truediv__(self, other: ArrayLike) -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         return self * (other ** -1.0)
 
     def __rtruediv__(self, other: ArrayLike) -> "Tensor":
-        return (Tensor(other) if not isinstance(other, Tensor) else other) * (self ** -1.0)
+        return self._coerce(other) * (self ** -1.0)
 
     # ------------------------------------------------------------------ #
     # Shape operations
@@ -308,7 +365,10 @@ class Tensor:
             if out.grad is None:
                 return
             g = np.zeros_like(self.data)
-            np.add.at(g, idx, out.grad)
+            if _is_basic_index(idx):
+                g[idx] = out.grad             # each element selected once
+            else:
+                np.add.at(g, idx, out.grad)   # repeated ids must accumulate
             self._accumulate(g)
 
         out._backward = _backward
@@ -431,20 +491,29 @@ class Tensor:
         return out
 
     def gelu(self) -> "Tensor":
-        """Gaussian Error Linear Unit (tanh approximation, as used by GPT-2)."""
+        """Gaussian Error Linear Unit (tanh approximation, as used by GPT-2).
+
+        Powers are written as explicit products (``x*x*x`` rather than
+        ``x**3``): NumPy's generic ``power`` is several times slower than
+        multiplication on large float arrays, and GELU runs on the widest
+        activation in the network, so this alone is a large share of a step.
+        """
         x = self.data
-        c = np.sqrt(2.0 / np.pi).astype(np.float32)
-        inner = c * (x + 0.044715 * x ** 3)
+        c = x.dtype.type(np.sqrt(2.0 / np.pi))
+        k = x.dtype.type(0.044715)
+        x2 = x * x
+        inner = c * (x + k * x2 * x)
         t = np.tanh(inner)
-        val = 0.5 * x * (1.0 + t)
+        half_1pt = 0.5 * (1.0 + t)
+        val = x * half_1pt
         out = Tensor(val, self.requires_grad, (self,), "gelu")
 
         def _backward() -> None:
             if out.grad is None:
                 return
             sech2 = 1.0 - t * t
-            dinner = c * (1.0 + 3 * 0.044715 * x ** 2)
-            dx = 0.5 * (1.0 + t) + 0.5 * x * sech2 * dinner
+            dinner = c * (1.0 + 3.0 * k * x2)
+            dx = half_1pt + 0.5 * x * sech2 * dinner
             self._accumulate(out.grad * dx)
 
         out._backward = _backward
@@ -538,5 +607,41 @@ def cat(tensors: list["Tensor"], axis: int = -1) -> "Tensor":
 
 
 def stack(tensors: list["Tensor"], axis: int = 0) -> "Tensor":
-    expanded = [t.reshape(*t.shape[:axis], 1, *t.shape[axis:]) for t in tensors]
-    return cat(expanded, axis=axis)
+    nd = tensors[0].ndim + 1
+    ax = axis if axis >= 0 else axis + nd      # e.g. -1 on (3,4) -> 2, giving (3,4,N)
+    expanded = [t.reshape(*t.shape[:ax], 1, *t.shape[ax:]) for t in tensors]
+    return cat(expanded, axis=ax)
+
+
+def layer_norm(x: "Tensor", gamma: "Tensor", beta: "Tensor", eps: float = 1e-5) -> "Tensor":
+    """Fused LayerNorm over the last axis with an analytic backward pass.
+
+    Composing LayerNorm from ``mean/var/sqrt/div/mul/add`` builds ~8 graph nodes
+    and as many intermediate arrays per call; the Transformer calls it many
+    times per step. This single op computes the same value and the exact
+    gradient (the standard LayerNorm backward) with a fraction of the overhead.
+    """
+    xd = x.data
+    mu = xd.mean(axis=-1, keepdims=True)
+    xc = xd - mu
+    var = (xc * xc).mean(axis=-1, keepdims=True)
+    rstd = 1.0 / np.sqrt(var + eps)
+    xhat = xc * rstd
+    out_data = xhat * gamma.data + beta.data
+    req = x.requires_grad or gamma.requires_grad or beta.requires_grad
+    out = Tensor(out_data, req, (x, gamma, beta), "layernorm")
+
+    def _backward() -> None:
+        if out.grad is None:
+            return
+        g = out.grad
+        axes = tuple(range(g.ndim - 1))
+        gamma._accumulate((g * xhat).sum(axis=axes))
+        beta._accumulate(g.sum(axis=axes))
+        gxhat = g * gamma.data
+        m1 = gxhat.mean(axis=-1, keepdims=True)
+        m2 = (gxhat * xhat).mean(axis=-1, keepdims=True)
+        x._accumulate(rstd * (gxhat - m1 - xhat * m2))
+
+    out._backward = _backward
+    return out

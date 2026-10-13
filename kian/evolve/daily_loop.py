@@ -68,6 +68,16 @@ class Evolver:
                 parts.append(Path(p).read_text(encoding="utf-8", errors="replace"))
             except Exception:
                 pass
+        # Lessons archived by earlier cycles live in <corpus>/learned/, which the
+        # non-recursive corpus glob does not cover — include them so a fed
+        # lesson keeps being trained on, as promised, not just once.
+        learned = Path(self.corpus_glob).parent / "learned"
+        if learned.is_dir():
+            for p in sorted(learned.glob("*.txt")):
+                try:
+                    parts.append(p.read_text(encoding="utf-8", errors="replace"))
+                except Exception:
+                    pass
         new_files = 0
         if self.inbox_dir.exists():
             for p in sorted(self.inbox_dir.glob("*")):
@@ -139,6 +149,12 @@ class Evolver:
                    f"Day {being.identity.days_lived}: trained {n_steps} steps, "
                    f"stage {new_stage}, loss {last_train:.2f}.")
         being.mind.learn_fact(journal, importance=1.5)
+        try:
+            being.mood.event("learned")
+            if grew:
+                being.mood.event("grew")
+        except Exception:
+            pass
         if grew:
             being.remember(f"لقد نموت! أصبحت الآن في مرحلة {new_stage}. "
                            f"I grew! I am now at the {new_stage} stage.", importance=3.0)
