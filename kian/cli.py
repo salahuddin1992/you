@@ -129,11 +129,20 @@ def cmd_face(args) -> None:
 
 def cmd_see(args) -> None:
     if args.image:
-        from .vision.image import analyze_image
-        print(analyze_image(args.image))
+        being = _load_or_birth(args.home)
+        print(being.see_image(args.image))
+        being.save()
     else:
         from .senses.screen import describe_screen
         print(describe_screen())
+
+
+def cmd_learn_images(args) -> None:
+    being = _load_or_birth(args.home)
+    print(f"👁️  learning images from {args.folder} ...")
+    acc = being.learn_images(args.folder, epochs=args.epochs, log=print)
+    being.save()
+    print(f"✅ vision trained: {acc * 100:.1f}% accuracy. Saved to {being.home / 'vision'}")
 
 
 def cmd_browse(args) -> None:
@@ -218,6 +227,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     v = sub.add_parser("see", help="describe the screen or an image")
     v.add_argument("--image", default=None); v.set_defaults(func=cmd_see)
+
+    li = sub.add_parser("learn-images", help="train vision on labelled image sub-folders")
+    li.add_argument("folder"); li.add_argument("--epochs", type=int, default=40)
+    li.set_defaults(func=cmd_learn_images)
 
     w = sub.add_parser("browse", help="read a web page")
     w.add_argument("url"); w.add_argument("--chars", type=int, default=4000)

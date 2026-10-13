@@ -119,6 +119,20 @@ local animated face that reacts to the being's state.
   between calculator, memory store/recall, algorithm tools, vision, drawing, or
   the language model, returning the action taken and a one-line thought trace.
 
+## 10. Learning from your images & steadier training (v0.5)
+
+- **`vision/learn.py`** — `train_from_folder` turns a directory of labelled
+  sub-folders into a dataset (dependency-free image loading, nearest-neighbour
+  resize to 32×32) and trains the from-scratch CNN; `VisionClassifier`
+  persists to the being's `home/vision/` and `Being.see_image` consults it
+  automatically to name what it sees with a confidence. Defaults use small
+  batches because the number of gradient steps, not epochs, is what a tiny
+  convnet needs on a small folder.
+- **`trainer.py`** — `TrainConfig.accum_steps` accumulates gradients over
+  several micro-batches before each optimizer update (loss scaled by
+  1/accum), giving a larger effective batch on the same memory; a test
+  asserts it equals a single update on the mean gradient.
+
 ## Verification
 
 `tests/` promotes the engineering checks into a suite: float64 gradient checks

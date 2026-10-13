@@ -70,7 +70,8 @@ python -m kian --home kian_home evolve --daemon --interval 24          # foregro
 | `evolve [--daemon]` | دورة تطوّر ذاتي · a self-development cycle |
 | `draw "..."` | رسم من وصف نصّي · generate a drawing from text |
 | `face` | ارسم شكله · render the being's form |
-| `see [--image p]` | يصف الشاشة أو صورة · describe the screen or an image |
+| `see [--image p]` | يصف الشاشة أو صورة (ويصنّفها إن تعلّم) · describe the screen or an image (and classify it, once trained) |
+| `learn-images <folder>` | يتعلّم التعرّف على صورك من مجلدات مصنّفة · learn your images from labelled sub-folders |
 | `browse URL` | يقرأ صفحة ويب · read a web page |
 | `say "..."` | ينطق بصوت (يحتاج محرّك نطق) · speak aloud (needs a TTS backend) |
 | `feed <path\|URL>` | يبتلع ملفًا أو صفحة ليتعلّمها ليلًا · feed a file/URL to learn |

@@ -239,10 +239,33 @@ class Being:
         return desc
 
     def see_image(self, path: str) -> str:
+        """Describe an image; if the being has learned to classify images,
+        also say what it thinks the image is, with a confidence."""
         from .vision.image import analyze_image
         desc = analyze_image(path)
+        try:
+            from .vision.learn import VisionClassifier
+            from .util.imageio import load_image
+            clf = VisionClassifier.load(self.home / "vision")
+            if clf is not None:
+                label, conf = clf.predict(load_image(path))
+                desc += f" أظنّها: {label} ({conf * 100:.0f}%) · I think it's a {label} ({conf * 100:.0f}%)."
+        except Exception:
+            pass
         self.perceive(f"[saw image {path}] {desc}", kind="perception")
+        self.mood.event("saw_something")
         return desc
+
+    def learn_images(self, folder: str, epochs: int = 40, log=None) -> float:
+        """Train the vision network on labelled sub-folders of ``folder``.
+        Returns training accuracy. The classifier is saved in the home."""
+        from .vision.learn import train_from_folder
+        _, acc = train_from_folder(folder, self.home / "vision", epochs=epochs, log=log)
+        self.remember(f"تعلّمت التعرّف على الصور من {folder} بدقة {acc * 100:.0f}%. "
+                      f"I learned to recognise images from {folder} ({acc * 100:.0f}% accuracy).",
+                      importance=2.0)
+        self.mood.event("learned")
+        return acc
 
     def draw(self, prompt: str = "", out_path: str = "drawing.png") -> str:
         from .draw.canvas import draw_from_text

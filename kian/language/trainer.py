@@ -36,6 +36,7 @@ class TrainConfig:
     eval_every: int = 50
     eval_batches: int = 8
     seed: int = 1337
+    accum_steps: int = 1   # gradient accumulation: micro-batches per optimizer update
     log: Optional[Callable[[str], None]] = print
 
 
@@ -67,14 +68,19 @@ class Trainer:
         model.train()
         start = time.time()
         running = None
+        accum = max(1, int(c.accum_steps))
+        gnorm = 0.0
         for step in range(1, c.steps + 1):
             lr = self.sched.step()
             x, y = train_ds.batch(c.batch_size, self.rng)
-            model.zero_grad()
+            if (step - 1) % accum == 0:
+                model.zero_grad()
             loss = model.loss(x, y)
-            loss.backward()
-            gnorm = clip_grad_norm_(model.parameters(), c.grad_clip)
-            self.opt.step()
+            # Scale so the accumulated gradient equals the mean over micro-batches.
+            (loss * (1.0 / accum)).backward()
+            if step % accum == 0:
+                gnorm = clip_grad_norm_(model.parameters(), c.grad_clip)
+                self.opt.step()
 
             lv = loss.item()
             if not math.isfinite(lv):
