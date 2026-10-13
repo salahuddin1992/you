@@ -21,8 +21,13 @@ def kmeans(X: np.ndarray, k: int, iters: int = 100, seed: int = 0,
     centers = [X[rng.integers(n)]]
     for _ in range(1, k):
         d2 = np.min([((X - c) ** 2).sum(1) for c in centers], axis=0)
-        probs = d2 / (d2.sum() + 1e-12)
-        centers.append(X[rng.choice(n, p=probs)])
+        if d2.sum() <= 0:
+            # every point already coincides with a chosen center (fewer distinct
+            # rows than k): fall back to a uniform pick instead of a zero-mass
+            # probability vector, which rng.choice rejects.
+            centers.append(X[rng.integers(n)])
+            continue
+        centers.append(X[rng.choice(n, p=d2 / d2.sum())])
     centers = np.array(centers)
     labels = np.zeros(n, dtype=int)
     for _ in range(iters):

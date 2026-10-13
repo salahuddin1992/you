@@ -135,6 +135,14 @@ local animated face that reacts to the being's state.
 
 ## Verification
 
+An adversarial audit (v0.6) ran five independent reviewers over the layers,
+then three refuters per finding who re-read the code and executed each repro;
+all 19 surviving defects were fixed with regression tests in
+`tests/test_audit_fixes.py` (notably: NumPy-2 float64 promotion of Linear/
+attention, a NaN loss reaching the optimizer, calculator `pow()` bounds,
+blocklist spelling variants, charset-less UTF-8 pages, interlaced PNGs,
+special tokens absent from training, and a dataset off-by-one).
+
 `tests/` promotes the engineering checks into a suite: float64 gradient checks
 for the autodiff engine and `conv2d`, Transformer overfitting, multilingual
 tokenizer round-trips, PNG round-trip, memory persistence, and the safety gate.

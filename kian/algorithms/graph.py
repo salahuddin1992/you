@@ -112,14 +112,20 @@ class _DSU:
 
 def minimum_spanning_tree(g: Graph) -> Tuple[List[Tuple[Node, Node, float]], float]:
     """Kruskal's MST for an undirected weighted graph. Returns (edges, cost)."""
-    edges = set()
+    # Key each undirected edge by (weight, sorted reprs) so both adjacency
+    # directions collapse to one entry and sorting never compares raw nodes
+    # (which may be unorderable or of mixed types).
+    edges: Dict[Tuple[float, str, str], Tuple[Node, Node]] = {}
     for u in g.nodes:
         for v, w in g.adj[u]:
-            edges.add((w, *sorted((repr(u), repr(v))), u, v))
+            key = (w, *sorted((repr(u), repr(v))))
+            edges.setdefault(key, (u, v))
     dsu = _DSU()
     mst: List[Tuple[Node, Node, float]] = []
     total = 0.0
-    for w, _, _, u, v in sorted(edges):
+    for key in sorted(edges):
+        w = key[0]
+        u, v = edges[key]
         if dsu.union(u, v):
             mst.append((u, v, w))
             total += w

@@ -39,7 +39,7 @@ def cmd_birth(args) -> None:
                         block_size=args.block)
     print(f"🌱 Born: {being}")
     print(f"   home: {Path(args.home).resolve()}")
-    print("   Next: `python -m kian evolve --home {h}` to let it start learning."
+    print("   Next: `python -m kian --home {h} evolve` to let it start learning."
           .format(h=args.home))
 
 
@@ -70,7 +70,7 @@ def cmd_chat(args) -> None:
             break
         if text == "save":
             being.save(); print("   (saved)"); continue
-        out = being.act(text, max_new_tokens=args.tokens)
+        out = being.act(text, max_new_tokens=args.tokens, temperature=args.temp)
         tag = "" if out["action"] == "talk" else f"  \033[2m[{out['action']}: {out['thought']}]\033[0m"
         print(f"{being.identity.name} » {out['answer']}{tag}\n")
     being.save()

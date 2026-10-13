@@ -20,6 +20,7 @@ hundred readable lines with no external tokenizer dependency.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -27,6 +28,8 @@ from typing import Dict, List, Optional, Tuple
 # Special tokens live *above* the 256 byte ids so they can never collide with
 # real data. Order here defines their ids.
 SPECIAL_TOKENS = ["<pad>", "<bos>", "<eos>", "<unk>", "<user>", "<kian>", "<sep>"]
+# Splits text around literal special tokens (keeping them) for encode().
+_SPECIAL_SPLIT_RE = re.compile("(" + "|".join(re.escape(t) for t in SPECIAL_TOKENS) + ")")
 
 
 class Tokenizer:
@@ -142,7 +145,18 @@ class Tokenizer:
         return ids
 
     def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> List[int]:
-        ids = self._bpe(list(text.encode("utf-8")))
+        """Encode text to ids. Literal special-token strings (``<user>``,
+        ``<kian>``, ``<eos>`` …) in the text map to their special ids, so a
+        corpus written in the chat format trains the same ids the chat path
+        conditions on; everything else goes through byte-level BPE."""
+        ids: List[int] = []
+        for piece in _SPECIAL_SPLIT_RE.split(text):
+            if not piece:
+                continue
+            if piece in self.special:
+                ids.append(self.special[piece])
+            else:
+                ids.extend(self._bpe(list(piece.encode("utf-8"))))
         if add_bos:
             ids = [self.special["<bos>"]] + ids
         if add_eos:

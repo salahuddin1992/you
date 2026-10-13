@@ -44,10 +44,13 @@ class TextDataset:
         return cls.from_text(text, tokenizer, block_size)
 
     def __len__(self) -> int:
-        return max(1, len(self.ids) - self.block_size - 1)
+        # windows start at s in [0, len - block_size - 1] inclusive
+        return max(1, len(self.ids) - self.block_size)
 
     def batch(self, batch_size: int, rng: np.random.Generator) -> Tuple[np.ndarray, np.ndarray]:
-        hi = len(self.ids) - self.block_size - 1
+        # exclusive upper bound: the last valid start is len - block_size - 1,
+        # so the final corpus token can appear as a target
+        hi = len(self.ids) - self.block_size
         starts = rng.integers(0, max(1, hi), size=batch_size)
         x = np.stack([self.ids[s : s + self.block_size] for s in starts])
         y = np.stack([self.ids[s + 1 : s + 1 + self.block_size] for s in starts])

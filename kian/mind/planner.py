@@ -24,7 +24,10 @@ from . import tools
 _DRAW = ("ارسم", "رسمة", "ارسمي", "draw", "paint", "sketch")
 _SEE = ("انظر", "شاهد", "الشاشة", "ماذا ترى", "see screen", "look at screen", "screenshot")
 _REMEMBER = ("تذكر", "احفظ", "تذكّر", "remember that", "remember:", "note that")
-_RECALL = ("ماذا تتذكر", "بماذا تتذكر", "اذكر", "استرجع", "what do you remember", "recall")
+_RECALL = ("ماذا تتذكر", "بماذا تتذكر", "هل تتذكر", "اذكر", "استرجع",
+           "what do you remember", "do you remember", "recall")
+# Store trigger: 'تذكر' only as a whole word, so 'تتذكر' (you remember) never matches.
+_REMEMBER_RE = re.compile(r"(?<!\w)(تذكّر|تذكر|احفظ)(?!\w)|remember that|remember:|note that", re.I)
 _SORT = ("رتب", "ترتيب", "sort")
 _PRIMES = ("أولية", "اولية", "primes", "prime number")
 
@@ -53,30 +56,35 @@ def plan(text: str, being=None) -> Optional[Plan]:
 
     # 1) memory: recall (checked before store: "تتذكر" contains "تذكر")
     if has(_RECALL) and being is not None:
-        q = re.split(r"ماذا تتذكر|بماذا تتذكر|اذكر|استرجع|what do you remember|recall",
+        q = re.split(r"ماذا تتذكر|بماذا تتذكر|هل تتذكر|اذكر|استرجع|what do you remember|do you remember|recall",
                      t, maxsplit=1, flags=re.I)[-1].strip(" :،,؟?") or t
         hits = being.mind.recall(q, k=3)
         body = "؛ ".join(hits) if hits else "لا شيء بعد · nothing yet"
         return Plan("recall", f"أتذكّر: {body}", data=hits, thought="semantic memory recall")
 
     # 2) memory: store
-    if has(_REMEMBER):
-        fact = re.split(r"تذكّر|تذكر|احفظ|remember that|remember:|note that",
-                        t, maxsplit=1, flags=re.I)[-1].strip(" :،,")
+    if _REMEMBER_RE.search(t):
+        fact = _REMEMBER_RE.split(t, maxsplit=1)[-1].strip(" :،,")
         if fact and being is not None:
             being.remember(fact, importance=2.0)
             return Plan("remember", f"حفظتُها: {fact} · Noted: {fact}", data=fact,
                         thought="stored a fact in long-term memory")
 
     # 3) calculator — whole string, or an expression embedded in a sentence
-    expr = t if tools.looks_like_math(t) else tools.extract_expression(t)
-    if expr and not has(_SORT) and not has(_PRIMES):
-        try:
-            val = tools.calculate(expr)
-            return Plan("calc", f"{expr.strip()} = {val}", data=val,
-                        thought="parsed arithmetic and evaluated it safely")
-        except tools.CalcError:
-            pass  # not really math; fall through
+    if not has(_SORT) and not has(_PRIMES):
+        candidates = [t] if tools.looks_like_math(t) else []
+        ex = tools.extract_expression(t)
+        if ex and ex not in candidates:
+            candidates.append(ex)                 # e.g. 'what is 12 * 3' -> '12 * 3'
+        for expr in candidates:
+            try:
+                val = tools.calculate(expr)
+                return Plan("calc", f"{expr.strip()} = {val}", data=val,
+                            thought="parsed arithmetic and evaluated it safely")
+            except tools.CalcError:
+                continue                          # not really math; try next
+            except Exception:
+                continue                          # never crash the being on an edge case
 
     # 4) sort numbers
     if has(_SORT):

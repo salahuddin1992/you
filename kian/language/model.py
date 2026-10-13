@@ -62,7 +62,9 @@ class CausalSelfAttention(Module):
         self.proj = Linear(cfg.n_embd, cfg.n_embd, bias=True)
         self.attn_drop = Dropout(cfg.dropout)
         self.resid_drop = Dropout(cfg.dropout)
-        self.scale = 1.0 / np.sqrt(self.head_dim)
+        # Python float (not np.float64) so it never promotes float32 attention
+        # scores to float64 in either the autograd or the NumPy inference path.
+        self.scale = float(1.0 / np.sqrt(self.head_dim))
         # Pre-computed additive causal mask: 0 on/below the diagonal, -inf above.
         mask = np.triu(np.full((cfg.block_size, cfg.block_size), -1e9, np.float32), k=1)
         self._mask = mask  # (block, block)

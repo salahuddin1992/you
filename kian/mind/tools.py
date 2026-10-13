@@ -54,6 +54,17 @@ MAX_RESULT_DIGITS = 4000
 MAX_FACTORIAL = 2000
 
 
+MAX_RESULT_BITS = int(MAX_RESULT_DIGITS * 3.33)
+
+
+def _bound(x):
+    """Refuse any integer result beyond MAX_RESULT_DIGITS, whatever produced it
+    (products, factorial, the pow() function) — not only the ** operator."""
+    if isinstance(x, int) and not isinstance(x, bool) and x.bit_length() > MAX_RESULT_BITS:
+        raise CalcError("result too large")
+    return x
+
+
 def _check_pow(base, exp) -> None:
     if not isinstance(exp, (int, float)) or not isinstance(base, (int, float)):
         raise CalcError("only numbers are allowed")
@@ -89,7 +100,7 @@ def _eval(node: ast.AST) -> float:
         if isinstance(node.op, ast.Pow):
             _check_pow(left, right)
         try:
-            return _BIN[type(node.op)](left, right)
+            return _bound(_BIN[type(node.op)](left, right))
         except OverflowError:
             raise CalcError("result too large") from None
         except ZeroDivisionError:
@@ -106,14 +117,18 @@ def _eval(node: ast.AST) -> float:
         if node.keywords:
             raise CalcError("keyword arguments are not allowed")
         args = [_eval(a) for a in node.args]
+        if node.func.id == "pow":
+            if len(args) < 2:
+                raise CalcError("pow needs two arguments")
+            _check_pow(args[0], args[1])          # same bounds as the ** operator
         if node.func.id == "factorial" and (not args or not isinstance(args[0], (int, float))
                                             or args[0] > MAX_FACTORIAL or args[0] < 0):
             raise CalcError(f"factorial argument must be in [0, {MAX_FACTORIAL}]")
         try:
-            return _FUNCS[node.func.id](*args)
+            return _bound(_FUNCS[node.func.id](*args))
         except OverflowError:
             raise CalcError("result too large") from None
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, ZeroDivisionError) as e:
             raise CalcError(str(e)) from None
     raise CalcError("unsupported expression")
 
@@ -144,10 +159,18 @@ _MATH_RE = re.compile(r"^[\s\d٠-٩۰-۹\.\+\-\*\/\%\^\(\)×÷،eπ,a-z]+$", re.
 _HAS_OP = re.compile(r"[\+\-\*\/\^×÷%]|sqrt|sin|cos|tan|log|exp|factorial")
 
 
+_NAMES_RE = re.compile(r"\b(" + "|".join(sorted(list(_FUNCS) + list(_CONSTS), key=len, reverse=True)) + r")\b")
+_PURE_RE = re.compile(r"^[\d\.\s\+\-\*\/%\(\),]+$")
+
+
 def looks_like_math(text: str) -> bool:
+    """True when the WHOLE string is an arithmetic expression: digits, operators,
+    parentheses and whitelisted function/constant names only."""
     t = normalize(text)
-    return bool(t) and bool(_MATH_RE.match(t)) and bool(_HAS_OP.search(t)) and any(
-        c.isdigit() for c in t)
+    if not t or not _HAS_OP.search(t) or not any(c.isdigit() for c in t):
+        return False
+    stripped = _NAMES_RE.sub("", t)
+    return bool(_PURE_RE.match(stripped))
 
 
 _EXPR_RUN = re.compile(r"[0-9\.\s\+\-\*\/%\(\)]+")

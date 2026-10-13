@@ -56,6 +56,26 @@ HARD_BLOCK: List[str] = [
 ]
 
 
+# Regex companions to HARD_BLOCK: the same operations in any flag order or
+# spelling. Applied to the lower-cased, whitespace-collapsed text.
+HARD_BLOCK_RE = [re.compile(p) for p in [
+    r"\brm\b(?=.*\s-{1,2}[a-z]*r)",                 # rm with any recursive flag (-r, -rf, -fr, -r -f)
+    r"\brm\b(?=.*--recursive)",
+    r"\b(rd|rmdir)\b.*(\s/s\b|\s-r)",               # rd /s /q, rmdir /s
+    r"\b(del|erase)\b\s+\S",                        # cmd del/erase of anything
+    r"\b(remove-item|ri)\b.*-(recurse|force)",      # PowerShell recursive/forced delete
+    r"\bformat\b",
+    r"\b(mkfs|shred|wipe|fdisk|diskpart)\b",
+    r"\bdd\b.*\bof=/dev/",
+    r"\b(set|add)-mppreference\b",
+    r"\bnetsh\b.*\b(firewall|advfirewall)\b",
+    r"\b(takeown|icacls|cacls)\b",
+    r"\b(schtasks|bcdedit|bootrec|vssadmin|cipher)\b",
+    r"\b(shutdown|powercfg)\b",
+    r"\breg\b\s+(add|delete)\b",
+]]
+
+
 @dataclass
 class SafetyPolicy:
     # capability switches
@@ -72,8 +92,15 @@ class SafetyPolicy:
 
     # ------------------------------------------------------------------ #
     def is_hard_blocked(self, text: str) -> bool:
-        low = text.lower()
-        return any(bad in low for bad in HARD_BLOCK)
+        """Categorical refusal. Matches the fixed substrings AND regex patterns
+        that cover spelling variants of the same destructive operation
+        (``rm -fr``, ``rm -r -f``, ``rm --recursive``, ``rd /s /q``, bare
+        ``del``, ``Remove-Item -Recurse``…), after collapsing whitespace and
+        case so shell-equivalent spellings cannot slip past."""
+        low = re.sub(r"\s+", " ", text.lower()).strip()
+        if any(bad in low for bad in HARD_BLOCK):
+            return True
+        return any(rx.search(low) for rx in HARD_BLOCK_RE)
 
     def command_allowed(self, argv: List[str]) -> tuple[bool, str]:
         if not self.allow_commands:

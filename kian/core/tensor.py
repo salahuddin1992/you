@@ -93,6 +93,11 @@ class Tensor:
 
     __slots__ = ("data", "grad", "requires_grad", "_backward", "_prev", "_op")
 
+    # Tell NumPy not to handle ufuncs with a Tensor operand, so expressions
+    # like ``np.float64(2.0) - tensor`` dispatch to Tensor.__rsub__ (and keep
+    # the Tensor's dtype) instead of NumPy coercing the Tensor itself.
+    __array_ufunc__ = None
+
     def __init__(
         self,
         data: ArrayLike,
@@ -152,6 +157,16 @@ class Tensor:
         else:
             self.grad += g                  # in-place accumulate, no new array
 
+    def _coerce(self, other) -> "Tensor":
+        """Wrap an operand as a Tensor. Python/NumPy scalars and lists take THIS
+        tensor's dtype, so an np.float64 scalar (e.g. ``1/np.sqrt(d)``) never
+        promotes a float32 activation/gradient stream to float64."""
+        if isinstance(other, Tensor):
+            return other
+        if isinstance(other, np.ndarray):
+            return Tensor(other)
+        return Tensor(np.asarray(other, dtype=self.data.dtype))
+
     def zero_grad(self) -> None:
         self.grad = None
 
@@ -185,7 +200,7 @@ class Tensor:
     # Elementwise arithmetic
     # ------------------------------------------------------------------ #
     def __add__(self, other: ArrayLike) -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         out = Tensor(
             self.data + other.data,
             self.requires_grad or other.requires_grad,
@@ -203,7 +218,7 @@ class Tensor:
         return out
 
     def __mul__(self, other: ArrayLike) -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         out = Tensor(
             self.data * other.data,
             self.requires_grad or other.requires_grad,
@@ -241,7 +256,7 @@ class Tensor:
         return out
 
     def __matmul__(self, other: "Tensor") -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         out = Tensor(
             self.data @ other.data,
             self.requires_grad or other.requires_grad,
@@ -254,8 +269,23 @@ class Tensor:
                 return
             # d/dA (A@B) = grad @ B^T ; d/dB (A@B) = A^T @ grad
             a, b, g = self.data, other.data, out.grad
-            self._accumulate(g @ np.swapaxes(b, -1, -2))
-            other._accumulate(np.swapaxes(a, -1, -2) @ g)
+            # Promote 1-D operands to 2-D so the standard formulas apply, then
+            # squeeze the gradients back (vector @ matrix, matrix @ vector, dot).
+            a2 = a[None, :] if a.ndim == 1 else a
+            b2 = b[:, None] if b.ndim == 1 else b
+            g2 = g
+            if a.ndim == 1:
+                g2 = g2[None, ...]
+            if b.ndim == 1:
+                g2 = g2[..., None]
+            ga = g2 @ np.swapaxes(b2, -1, -2)
+            gb = np.swapaxes(a2, -1, -2) @ g2
+            if a.ndim == 1:
+                ga = ga[0]
+            if b.ndim == 1:
+                gb = gb[..., 0]
+            self._accumulate(ga)
+            other._accumulate(gb)
 
         out._backward = _backward
         return out
@@ -265,10 +295,10 @@ class Tensor:
         return self * -1.0
 
     def __sub__(self, other: ArrayLike) -> "Tensor":
-        return self + (-(other if isinstance(other, Tensor) else Tensor(other)))
+        return self + (-self._coerce(other))
 
     def __rsub__(self, other: ArrayLike) -> "Tensor":
-        return (Tensor(other) if not isinstance(other, Tensor) else other) + (-self)
+        return self._coerce(other) + (-self)
 
     def __radd__(self, other: ArrayLike) -> "Tensor":
         return self + other
@@ -277,11 +307,11 @@ class Tensor:
         return self * other
 
     def __truediv__(self, other: ArrayLike) -> "Tensor":
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._coerce(other)
         return self * (other ** -1.0)
 
     def __rtruediv__(self, other: ArrayLike) -> "Tensor":
-        return (Tensor(other) if not isinstance(other, Tensor) else other) * (self ** -1.0)
+        return self._coerce(other) * (self ** -1.0)
 
     # ------------------------------------------------------------------ #
     # Shape operations
@@ -577,8 +607,10 @@ def cat(tensors: list["Tensor"], axis: int = -1) -> "Tensor":
 
 
 def stack(tensors: list["Tensor"], axis: int = 0) -> "Tensor":
-    expanded = [t.reshape(*t.shape[:axis], 1, *t.shape[axis:]) for t in tensors]
-    return cat(expanded, axis=axis)
+    nd = tensors[0].ndim + 1
+    ax = axis if axis >= 0 else axis + nd      # e.g. -1 on (3,4) -> 2, giving (3,4,N)
+    expanded = [t.reshape(*t.shape[:ax], 1, *t.shape[ax:]) for t in tensors]
+    return cat(expanded, axis=ax)
 
 
 def layer_norm(x: "Tensor", gamma: "Tensor", beta: "Tensor", eps: float = 1e-5) -> "Tensor":

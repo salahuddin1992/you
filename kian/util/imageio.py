@@ -96,6 +96,12 @@ def _decode_png(path: Path) -> np.ndarray:
         pos += 12 + length
         if tag == b"IHDR":
             width, height, bit_depth, color_type = struct.unpack(">IIBB", chunk[:10])
+            interlace = chunk[12] if len(chunk) > 12 else 0
+            if interlace:
+                # Adam7 lays IDAT out as 7 sub-images; this plain scanline
+                # decoder would read garbage. Fail clearly so load_image can
+                # fall back to Pillow (if installed) instead of returning noise.
+                raise ValueError("interlaced (Adam7) PNG is not supported by the built-in decoder; install Pillow")
         elif tag == b"IDAT":
             idat.extend(chunk)
         elif tag == b"IEND":
