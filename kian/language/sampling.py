@@ -49,8 +49,10 @@ def filter_top_p(logits: np.ndarray, p: Optional[float]) -> np.ndarray:
     order = np.argsort(logits)[::-1]
     probs = _softmax(logits[order])
     cum = np.cumsum(probs)
-    # keep tokens up to and including the one that crosses p
-    keep = cum <= p
+    # Nucleus = the smallest prefix whose mass reaches p. A token is kept when
+    # the mass *before* it is still below p, so the token that crosses the
+    # threshold is included (e.g. [0.6, 0.3, 0.1] with p=0.8 keeps two).
+    keep = (cum - probs) < p
     keep[0] = True  # always keep the top token
     masked = np.full_like(logits, -np.inf)
     masked[order[keep]] = logits[order[keep]]

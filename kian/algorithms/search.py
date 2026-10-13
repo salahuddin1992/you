@@ -5,6 +5,7 @@ informed graph search (BFS, DFS, Dijkstra, A*). Graph callables take a
 from __future__ import annotations
 
 import heapq
+import itertools
 from collections import deque
 from typing import Callable, Dict, Hashable, List, Optional, Sequence, Tuple
 
@@ -73,9 +74,10 @@ def dijkstra(start: Node, weighted_neighbors: Callable[[Node], List[Tuple[Node, 
     """Shortest path on a non-negative weighted graph. Returns (path, cost)."""
     dist: Dict[Node, float] = {start: 0.0}
     came: Dict[Node, Optional[Node]] = {start: None}
-    pq: List[Tuple[float, Node]] = [(0.0, start)]
+    tie = itertools.count()  # heap entries are (cost, tie, node): nodes are never compared
+    pq: List[Tuple[float, int, Node]] = [(0.0, next(tie), start)]
     while pq:
-        d, cur = heapq.heappop(pq)
+        d, _, cur = heapq.heappop(pq)
         if cur == goal:
             return _reconstruct(came, goal), d
         if d > dist.get(cur, float("inf")):
@@ -85,7 +87,7 @@ def dijkstra(start: Node, weighted_neighbors: Callable[[Node], List[Tuple[Node, 
             if nd < dist.get(nxt, float("inf")):
                 dist[nxt] = nd
                 came[nxt] = cur
-                heapq.heappush(pq, (nd, nxt))
+                heapq.heappush(pq, (nd, next(tie), nxt))
     return None, float("inf")
 
 
@@ -94,9 +96,10 @@ def astar(start: Node, weighted_neighbors: Callable[[Node], List[Tuple[Node, flo
     """A* search with an admissible ``heuristic`` toward ``goal``."""
     g: Dict[Node, float] = {start: 0.0}
     came: Dict[Node, Optional[Node]] = {start: None}
-    pq: List[Tuple[float, Node]] = [(heuristic(start), start)]
+    tie = itertools.count()
+    pq: List[Tuple[float, int, Node]] = [(heuristic(start), next(tie), start)]
     while pq:
-        _, cur = heapq.heappop(pq)
+        _, _, cur = heapq.heappop(pq)
         if cur == goal:
             return _reconstruct(came, goal), g[cur]
         for nxt, w in weighted_neighbors(cur):
@@ -104,7 +107,7 @@ def astar(start: Node, weighted_neighbors: Callable[[Node], List[Tuple[Node, flo
             if ng < g.get(nxt, float("inf")):
                 g[nxt] = ng
                 came[nxt] = cur
-                heapq.heappush(pq, (ng + heuristic(nxt), nxt))
+                heapq.heappush(pq, (ng + heuristic(nxt), next(tie), nxt))
     return None, float("inf")
 
 

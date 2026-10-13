@@ -16,14 +16,17 @@ executed.
 from __future__ import annotations
 
 import re
+import secrets
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 
 def _safe_name(stem: str) -> str:
+    """Unique, sortable filename: nanosecond timestamp + random suffix, so two
+    lessons fed within the same second (or the same instant) never collide."""
     stem = re.sub(r"[^\w\-.]+", "_", stem)[:60].strip("_") or "lesson"
-    return f"{int(time.time())}_{stem}.txt"
+    return f"{time.time_ns()}_{secrets.token_hex(3)}_{stem}.txt"
 
 
 def feed_text(text: str, inbox: str | Path = "data/inbox", name: str = "lesson") -> str:

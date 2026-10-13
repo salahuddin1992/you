@@ -158,6 +158,9 @@ async function send(){
   el.value=""; addMsg("me",text); setState("thinking"); $("#send").disabled=true;
   try{ const r=await api("/api/chat",{text}); renderVitals(r.vitals);
     setState("speaking"); addMsg("ki", r.reply || "…");
+    if(r.image){ const im=document.createElement("img"); im.src=r.image; im.alt="drawing";
+      im.style.cssText="max-width:84%;border-radius:12px;align-self:flex-end;border:1px solid var(--line)";
+      $("#log").appendChild(im); }
     if(r.action && r.action!=="talk"){ const m=document.createElement("div");
       m.className="meta"; m.textContent=`⚙︎ ${r.action} — ${r.thought}`; $("#log").appendChild(m); }
     $("#log").scrollTop=$("#log").scrollHeight;

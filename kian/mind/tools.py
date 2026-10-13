@@ -43,6 +43,33 @@ class CalcError(ValueError):
     pass
 
 
+# Resource bounds. The calculator can be reached by unauthenticated chat input
+# when the UI is exposed, and it runs under the app's global lock, so an
+# expression like ``9**999999999`` must be refused cheaply instead of letting
+# arbitrary-precision arithmetic eat CPU and memory.
+MAX_EXPR_LEN = 200
+MAX_AST_NODES = 200
+MAX_ABS_EXPONENT = 1000
+MAX_RESULT_DIGITS = 4000
+MAX_FACTORIAL = 2000
+
+
+def _check_pow(base, exp) -> None:
+    if not isinstance(exp, (int, float)) or not isinstance(base, (int, float)):
+        raise CalcError("only numbers are allowed")
+    if base in (0, 1, -1):
+        return  # trivial at any exponent (0, ±1): no cost, no growth
+    if abs(exp) > MAX_ABS_EXPONENT:
+        raise CalcError("exponent too large")
+    if exp > 0:
+        try:
+            digits = abs(exp) * math.log10(abs(base))
+        except (ValueError, OverflowError):
+            raise CalcError("result too large") from None
+        if digits > MAX_RESULT_DIGITS:
+            raise CalcError("result too large")
+
+
 def normalize(expr: str) -> str:
     expr = expr.translate(_DIGIT_MAP)
     for a, b in _SYMBOL_MAP.items():
@@ -58,7 +85,15 @@ def _eval(node: ast.AST) -> float:
             return node.value
         raise CalcError("only numbers are allowed")
     if isinstance(node, ast.BinOp) and type(node.op) in _BIN:
-        return _BIN[type(node.op)](_eval(node.left), _eval(node.right))
+        left, right = _eval(node.left), _eval(node.right)
+        if isinstance(node.op, ast.Pow):
+            _check_pow(left, right)
+        try:
+            return _BIN[type(node.op)](left, right)
+        except OverflowError:
+            raise CalcError("result too large") from None
+        except ZeroDivisionError:
+            raise CalcError("division by zero") from None
     if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY:
         return _UNARY[type(node.op)](_eval(node.operand))
     if isinstance(node, ast.Name):
@@ -70,7 +105,16 @@ def _eval(node: ast.AST) -> float:
             raise CalcError("only whitelisted math functions are allowed")
         if node.keywords:
             raise CalcError("keyword arguments are not allowed")
-        return _FUNCS[node.func.id](*[_eval(a) for a in node.args])
+        args = [_eval(a) for a in node.args]
+        if node.func.id == "factorial" and (not args or not isinstance(args[0], (int, float))
+                                            or args[0] > MAX_FACTORIAL or args[0] < 0):
+            raise CalcError(f"factorial argument must be in [0, {MAX_FACTORIAL}]")
+        try:
+            return _FUNCS[node.func.id](*args)
+        except OverflowError:
+            raise CalcError("result too large") from None
+        except (ValueError, TypeError) as e:
+            raise CalcError(str(e)) from None
     raise CalcError("unsupported expression")
 
 
@@ -80,10 +124,14 @@ def calculate(expr: str) -> float:
     cleaned = normalize(expr)
     if not cleaned:
         raise CalcError("empty expression")
+    if len(cleaned) > MAX_EXPR_LEN:
+        raise CalcError("expression too long")
     try:
         tree = ast.parse(cleaned, mode="eval")
     except SyntaxError as e:
         raise CalcError(f"could not parse: {e.msg}") from None
+    if sum(1 for _ in ast.walk(tree)) > MAX_AST_NODES:
+        raise CalcError("expression too complex")
     result = _eval(tree)
     if isinstance(result, float) and result.is_integer():
         return int(result)

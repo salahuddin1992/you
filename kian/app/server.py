@@ -48,8 +48,15 @@ class KianApp:
     def chat(self, text: str) -> dict:
         with self.lock:
             out = self.being.act(text, max_new_tokens=100)
-            return {"reply": out["answer"], "action": out["action"],
+            resp = {"reply": out["answer"], "action": out["action"],
                     "thought": out["thought"], "vitals": self.being.vitals()}
+            # A routed "draw" produces a PNG; return it so the chat can show it.
+            if out["action"] == "draw" and out.get("data"):
+                try:
+                    resp["image"] = _data_url(out["data"])
+                except Exception:
+                    pass
+            return resp
 
     def evolve(self, steps: int = 60) -> dict:
         from ..evolve.daily_loop import Evolver

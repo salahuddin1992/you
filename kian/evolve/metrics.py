@@ -30,19 +30,25 @@ def perplexity(lm, text: str, max_tokens: int = 4000) -> float:
     bs = lm.model.cfg.block_size
     was_training = lm.model.training
     lm.model.eval()
-    losses: List[float] = []
+    # Weight each chunk's mean loss by its number of targets so the final
+    # (possibly short) chunk does not count as much as a full block; the
+    # result is then a true per-token mean.
+    total_loss = 0.0
+    total_targets = 0
     for i in range(0, len(ids) - 1, bs):
         chunk = ids[i:i + bs + 1]
         if len(chunk) < 2:
             break
         x = np.array([chunk[:-1]], dtype=np.int64)
         y = np.array([chunk[1:]], dtype=np.int64)
-        losses.append(lm.model.loss(x, y).item())
+        n_t = len(chunk) - 1
+        total_loss += lm.model.loss(x, y).item() * n_t
+        total_targets += n_t
     if was_training:
         lm.model.train()
-    if not losses:
+    if total_targets == 0:
         return float("inf")
-    return math.exp(min(20.0, sum(losses) / len(losses)))
+    return math.exp(min(20.0, total_loss / total_targets))
 
 
 def growth_summary(home: str | Path) -> dict:
